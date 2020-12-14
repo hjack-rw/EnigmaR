@@ -1,7 +1,7 @@
 from flask import render_template, current_app, flash, jsonify, send_from_directory, after_this_request
 from main import app, posts, openSoundfile, saveSoundfile
 from main.forms import CipherForm, WithFileForm, EnigmaForm, ROTOR, POSITION, REFLECTOR
-from main.test11 import CIPHER, ENIGMA, readLSB, generateIndex, cipherWithFile
+from main.enigmar import CIPHER, ENIGMA, readLSB, generateIndex, cipherWithFile
 from datetime import datetime
 import os
 
