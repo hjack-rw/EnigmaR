@@ -1,0 +1,95 @@
+{% extends "layout.html" %}
+{% block content %}
+    <div class="content-section">
+        <form method="POST" action="" enctype="multipart/form-data">
+            {{ form.hidden_tag() }}
+            <fieldset>
+                 <legend class="border-bottom mb-4">Enter the settings:</legend>
+                    <div class="form-group">
+                        {{ form.rotor0.label(class="form-control-label mr-1") }}
+                        {{ form.rotor0(class="form-control-input ml-3") }}
+                        {{ form.rotor1(class="form-control-input ml-3") }}
+                        {{ form.rotor2(class="form-control-input ml-2") }}
+                        {{ form.rotor3(class="form-control-input ml-2") }}
+                    </div>
+                    <div class="form-group">
+                        {{ form.position0.label(class="form-control-label") }}
+                        {{ form.position0(class="form-control-input ml-2") }}
+                        {{ form.position1(class="form-control-input ml-3") }}
+                        {{ form.position2(class="form-control-input ml-3") }}
+                        {{ form.position3(class="form-control-input ml-3") }}
+                    </div>
+                    <div class="form-group">
+                        {{ form.ring0.label(class="form-control-label") }}
+                        {{ form.ring0(class="form-control-input ml-4") }}
+                        {{ form.ring1(class="form-control-input ml-3") }}
+                        {{ form.ring2(class="form-control-input ml-3") }}
+                        {{ form.ring3(class="form-control-input ml-3") }}
+                    </div>
+                    <div class="form-group">
+                        {{ form.reflector.label(class="form-control-label") }}
+                        {{ form.reflector(class="form-control-input ml-4") }}
+                    </div>
+                    <div class="form-group">
+                        {{ form.plugboard.label(class="form-control-label") }}
+
+                        {% if form.plugboard.errors %}
+                            {{ form.plugboard(class="form-control form-control-lg is-invalid") }}
+                            <div class="invalid-feedback">
+                                {% for error in form.plugboard.errors %}
+                                    <span>{{ error }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.plugboard(class="form-control form-control-lg") }}
+                        {% endif %}
+                    </div>
+                    <div class="form-group">
+                        {{ form.soundfile.label() }}
+                        {{ form.soundfile(class="form-control-file") }}
+                        {% if form.soundfile.errors %}
+                            {% for error in form.soundfile.errors %}
+                        <span class="text-danger">{{ error }}</span></br>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+            </fieldset>
+            <div class="form-group mt-2 ml-4">
+                {{ form.submit(class="btn btn-outline-info")  }}
+            </div>
+        </form>
+    </div>
+    <script>
+        rotor_select = document.getElementById('rotor0');
+        position_select = document.getElementById('position0');
+        ring_select = document.getElementById('ring0');
+        reflector_select = document.getElementById('reflector');
+
+        function loadOptions() {
+            rotor = rotor_select.value;
+            <!-- alert(rotor); -->
+            fetch('position/' + rotor).then(function(response){
+                response.json().then(function(data) {
+                    optionHTML = '';
+                    for (position of data.rotor_position) {
+                        optionHTML += '<option value="' + position.character +'">' + position.character + '</option>'
+                    }
+                    position_select.innerHTML = optionHTML;
+                    ring_select.innerHTML = optionHTML;
+                });
+            });
+            fetch('reflector/' + rotor).then(function(response){
+                response.json().then(function(data) {
+                    optionHTML = '';
+                    for (reflector of data.rotor_reflector) {
+                        optionHTML += '<option value="' + reflector.id +'">' + reflector.name + '</option>'
+                    }
+                    reflector_select.innerHTML = optionHTML;
+                });
+            });
+        };
+
+        window.onload = loadOptions;
+        rotor_select.onchange = loadOptions;
+    </script>
+{% endblock content %}

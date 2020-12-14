@@ -1,0 +1,54 @@
+{% extends "layout.html" %}
+{% block content %}
+    <div class="content-section">
+        <form method="POST" action="" enctype="multipart/form-data">
+            {{ form.hidden_tag() }}
+            <fieldset>
+                 <legend class="border-bottom mb-4">Enter the settings:</legend>
+                    <div class="form-group">
+                        {{ form.cipher.label(class="form-control-label") }}
+                        {{ form.cipher(class="form-control-label") }}
+                    </div>
+                    <div class="form-group">
+                        <label id="decrypting_label">{{ form.decrypting.label(class="form-control-label") }}</label>
+                        {{ form.decrypting(class="form-control-label") }}
+                    </div>
+                    <div class="form-group">
+                        {{ form.soundfile.label() }}
+                        {{ form.soundfile(class="form-control-file") }}
+                        {% if form.soundfile.errors %}
+                            {% for error in form.soundfile.errors %}
+                        <span class="text-danger">{{ error }}</span></br>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    <div class="form-group">
+                        {{ form.cipher_soundfile.label() }}
+                        {{ form.cipher_soundfile(class="form-control-file") }}
+                    </div>
+            </fieldset>
+            <div class="form-group mt-2 ml-4">
+                {{ form.submit(class="btn btn-outline-info")  }}
+            </div>
+        </form>
+    </div>
+    <script>
+        cipher_select = document.getElementById('cipher');
+
+        cipher_select.onchange = function() {
+            cipher = cipher_select.value;
+            if (cipher == 'new disk') {
+                cipher = 'newdisk'
+            }
+            window.location.href = '/cipher/withfile/' + cipher;
+        };
+
+        if (cipher_select.value == 'enigma') {
+            document.getElementById("decrypting").style.display = "none"
+            document.getElementById("decrypting_label").style.display = "none"
+        } else {
+            document.getElementById("decrypting").style.display = "initial"
+            document.getElementById("decrypting_label").style.display = "initial"
+        };
+    </script>
+{% endblock content %}

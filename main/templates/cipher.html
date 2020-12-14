@@ -1,0 +1,91 @@
+{% extends "layout.html" %}
+{% block content %}
+    <div class="content-section">
+        <form method="POST" action="" enctype="multipart/form-data">
+            {{ form.hidden_tag() }}
+            <fieldset>
+                 <legend class="border-bottom mb-4">Enter the settings:</legend>
+                    <div class="form-group">
+                        {{ form.cipher.label(class="form-control-label") }}
+                        {{ form.cipher(class="form-control-label") }}
+                        {{ form.new_disk.label(class="form-control-label ml-1") }}
+                        <label id="new_disk_label">New Disk</label>
+                        {% if form.new_disk.errors %}
+                            {{ form.new_disk(class="form-control-label is-invalid ml-1") }}
+                            <div class="invalid-feedback">
+                                {% for error in form.new_disk.errors %}
+                                    <span>{{ error }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.new_disk(class="form-control-label ml-1") }}
+                        {% endif %}
+                    </div>
+                    <div class="form-group">
+                        {{ form.decrypting.label(class="form-control-label") }}
+                        {{ form.decrypting(class="form-control-label") }}
+                        {{ form.new_disk.label(class="form-control-label ml-5") }}
+                        {{ form.index.label(class="form-control-label ml-5") }}
+                        {% if form.index.errors %}
+                            {{ form.index(class="form-control-label is-invalid ml-2") }}
+                            <div class="invalid-feedback">
+                                {% for error in form.index.errors %}
+                                    <span>{{ error }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.index(class="form-control-label ml-2") }}
+                        {% endif %}
+                    </div>
+                    <div class="form-group">
+                        {{ form.index_encrypting.label(class="form-control-label") }}
+                        {% if form.index_encrypting.errors %}
+                            {{ form.index_encrypting(class="form-control-label is-invalid") }}
+                            <div class="invalid-feedback">
+                                {% for error in form.index_encrypting.errors %}
+                                    <span>{{ error }}</span>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            {{ form.index_encrypting(class="form-control-label") }}
+                        {% endif %}
+                    </div>
+                    <div class="form-group">
+                        {{ form.soundfile.label() }}
+                        {{ form.soundfile(class="form-control-file") }}
+                        {% if form.soundfile.errors %}
+                            {% for error in form.soundfile.errors %}
+                        <span class="text-danger">{{ error }}</span></br>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+            </fieldset>
+            <div class="form-group mt-2 ml-4">
+                {{ form.submit(class="btn btn-outline-info")  }}
+            </div>
+        </form>
+    </div>
+    <script>
+        cipher_select = document.getElementById('cipher');
+
+        cipher_select.onchange = function() {
+            cipher = cipher_select.value;
+            if (cipher == 'new disk') {
+                cipher = 'newdisk'
+            }
+            window.location.href = '/cipher/' + cipher;
+        };
+
+        if (window.location.href.indexOf('withfile') > 0) {
+            window.location.href = '/cipher/withfile/caesar';
+        };
+
+        if (cipher_select.value == 'new disk') {
+            document.getElementById("new_disk").style.visibility = "visible"
+            document.getElementById("new_disk_label").style.visibility = "visible"
+        } else {
+            document.getElementById("new_disk").style.visibility = "hidden"
+            document.getElementById("new_disk_label").style.visibility = "hidden"
+        };
+    </script>
+{% endblock content %}
