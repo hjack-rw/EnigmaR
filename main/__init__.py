@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 app.config['SECRET_KEY'] = '29d3580a694df58df79edcd9ae33a530'
 app.config['CLIENT_FILE'] = r'C:\Users\Rafal\PycharmProjects\enigmar\test13'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///enigmar.db'
 db = SQLAlchemy(app)
 
 
