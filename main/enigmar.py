@@ -11,6 +11,8 @@ def creatCode():
 
 alphabet = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ.,!?:'")
 code = creatCode()
+code_rev = {v: k for k, v in code.items()}
+alph_index = {c: i for i, c in enumerate(alphabet)}
 
 
 def command(command, data_length, ctype):
@@ -102,10 +104,10 @@ def cipherWithFile(data, ctype, cipher_name):
                 turnover.append(None)
             else:
                 if letter_index % 2 == 0:
-                    turnover.append([alphabet.index(index_string[letter_index])])
+                    turnover.append([alph_index[index_string[letter_index]]])
                     letter_index += 1
                 else:
-                    turnover.append([alphabet.index(index_string[letter_index]), alphabet.index(index_string[letter_index + 1])])
+                    turnover.append([alph_index[index_string[letter_index]], alph_index[index_string[letter_index + 1]]])
                     letter_index += 2
 
         reflector = dict(zip(alphabet, alphabet))
@@ -117,21 +119,21 @@ def cipherWithFile(data, ctype, cipher_name):
             reflector[alphabet[new_disk_index]] = letter
 
         while len(position) < len(rotors):
-            position.append(alphabet.index(index_string[letter_index]))
+            position.append(alph_index[index_string[letter_index]])
             letter_index += 1
 
         while len(rings) < len(rotors):
-            rings.append(alphabet.index(index_string[letter_index]))
+            rings.append(alph_index[index_string[letter_index]])
             letter_index += 1
 
         plugboard = dict(zip(alphabet, alphabet))
-        #if alphabet.index(rest[letter_index]) % 32 != 0:
+        #if alph_index[rest[letter_index]] % 32 != 0:
         if letter_index % 64 != 0:
             letter_index += 1
 
             letter_index, new_disk = getNewDisk(index_string[-(len(index_string) - letter_index + 1):])
             plugs = list(map(''.join, zip(*[iter(new_disk)] * 16)))
-            how_many_plugs = floor(alphabet.index(index_string[letter_index]) / 2) + 1
+            how_many_plugs = floor(alph_index[index_string[letter_index]] / 2) + 1
             letter_index += 1
             for new_disk_index, letter in enumerate(plugs[0]):
                 if new_disk_index == how_many_plugs:
@@ -177,7 +179,7 @@ def outCode(string, least_significant_bit, ctype):
     number_b2 = []
 
     for character_index, character in enumerate(string):
-        number_b2.append(list(code.keys())[list(code.values()).index(character)])
+        number_b2.append(code_rev[character])
         if bits == 32 and character_index == 2:
             number_b2.append(least_significant_bit[1])
     number_b2.append(least_significant_bit[0])
@@ -208,7 +210,7 @@ def checkBits(ctype):
 
 
 def rotateDisk(disk, character):
-    left = alphabet.index(character)
+    left = alph_index[character]
     return disk[left:] + disk[:left]
 
 
@@ -237,7 +239,7 @@ class CIPHER:
             if ctype == 'h':
                 encrypted_message_index = floor((data_index / 5))
                 try:
-                    bit_string = list(code.keys())[list(code.values()).index(index_string[encrypted_message_index])]
+                    bit_string = code_rev[index_string[encrypted_message_index]]
                     self.least_significant_bit = bit_string[data_index % 5]
                 except IndexError:
                     self.index_encrypting = False
@@ -247,14 +249,14 @@ class CIPHER:
                     encrypted_message_index = -1 + 2 * floor(data_index / 5)
 
                     try:
-                        bit_string_left = list(code.keys())[list(code.values()).index(index_string[encrypted_message_index])]
-                        bit_string_right = list(code.keys())[list(code.values()).index(index_string[encrypted_message_index + 1])]
+                        bit_string_left = code_rev[index_string[encrypted_message_index]]
+                        bit_string_right = code_rev[index_string[encrypted_message_index + 1]]
 
                         self.least_significant_bit = [bit_string_right[0], bit_string_left[4]]
                     except IndexError:
 
                         try:
-                            bit_string_left = list(code.keys())[list(code.values()).index(index_string[encrypted_message_index])]
+                            bit_string_left = code_rev[index_string[encrypted_message_index]]
                             self.least_significant_bit = [self.least_significant_bit[0], bit_string_left[4]]
                         except IndexError:
                             self.index_encrypting = False
@@ -265,7 +267,7 @@ class CIPHER:
                     encrypted_message_index = use_instead[data_index % 10] + 4 * floor(data_index / 10)
 
                     try:
-                        bit_string = list(code.keys())[list(code.values()).index(index_string[encrypted_message_index])]
+                        bit_string = code_rev[index_string[encrypted_message_index]]
                         self.least_significant_bit = [bit_string[which_pair[data_index % 5][0]], bit_string[which_pair[data_index % 5][1]]]
                     except IndexError:
                         self.index_encrypting = False
@@ -318,7 +320,7 @@ def enigmaRotors():
 
 
 def enigmaReflectors():
-    reflectorA = list("UHYPG'EBKLQJOVMDIZ.TANXWCRS!,:?F")
+    reflectorA = list("UHYPG'EBKLIJOVMDTZ.QANXWCRS!,:?F")
     reflectorB = list("'!UIX?MYDKJ:GZS,VTORCQ.EHNWPBFLA")
     reflectorC = list("OZEHCGFDQR:P'XALIJW,!YSNVB?TU.KM")
     reflectorBthin = list("WBOPC:I'KZFQ?,REDVXLGUA.!NMJYHST")
@@ -337,14 +339,14 @@ def enigmaLoop(integer):
 
 
 def eingmaShift(character, how_much):
-    shifted = alphabet.index(character) + how_much
+    shifted = alph_index[character] + how_much
     return enigmaLoop(shifted)
 
 
 def enigmaSwitchRepresentation(rotor):
     new_rotor = []
     for rotor_index in range(len(rotor)):
-        index = alphabet.index(rotor[rotor_index])
+        index = alph_index[rotor[rotor_index]]
 
         if rotor_index < index:
             new_rotor.append(index - rotor_index)
@@ -361,7 +363,7 @@ def enigmaSetupTurnover(rotor):
         turnover_list = list(turnover)
 
         for turnover_index, turnover in enumerate(turnover_list):
-            turnover_list[turnover_index] = alphabet.index(turnover)
+            turnover_list[turnover_index] = alph_index[turnover]
 
         turnover = turnover_list
     return turnover
@@ -401,8 +403,8 @@ class ENIGMA:
         for rotor_index, rotor in enumerate(self.chsn_rotors_letters):
             rotors.append(all_rotors[int(rotor)])
             self.rotor_turnover.append(enigmaSetupTurnover(rotor))
-            rings.append(alphabet.index(self.chsn_rings[rotor_index]))
-            position.append(alphabet.index(self.current_position[rotor_index]) - rings[rotor_index])
+            rings.append(alph_index[self.chsn_rings[rotor_index]])
+            position.append(alph_index[self.current_position[rotor_index]] - rings[rotor_index])
 
         self.chsn_rotors_letters, self.current_position, self.chsn_rings = rotors, position, rings
         del rotors, position, rings, all_rotors
