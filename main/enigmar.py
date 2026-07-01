@@ -1,5 +1,6 @@
 from math import floor
 from random import randint
+from functools import lru_cache
 
 
 def creatCode():
@@ -343,7 +344,8 @@ def eingmaShift(character, how_much):
     return enigmaLoop(shifted)
 
 
-def enigmaSwitchRepresentation(rotor):
+@lru_cache(maxsize=None)
+def _switch_representation(rotor):
     new_rotor = []
     for rotor_index in range(len(rotor)):
         index = alph_index[rotor[rotor_index]]
@@ -352,7 +354,16 @@ def enigmaSwitchRepresentation(rotor):
             new_rotor.append(index - rotor_index)
         else:
             new_rotor.append(-(rotor_index - index))
-    return new_rotor
+    return tuple(new_rotor)
+
+
+@lru_cache(maxsize=None)
+def _rotor_letter_index(rotor):
+    return {c: i for i, c in enumerate(rotor)}
+
+
+def enigmaSwitchRepresentation(rotor):
+    return _switch_representation(tuple(rotor))
 
 
 def enigmaSetupTurnover(rotor):
@@ -384,6 +395,7 @@ class ENIGMA:
         self.chsn_rotors = []
         for rotor in self.chsn_rotors_letters:
             self.chsn_rotors.append(enigmaSwitchRepresentation(rotor))
+        self._rotor_letter_idx = [_rotor_letter_index(tuple(r)) for r in self.chsn_rotors_letters]
 
         string, least_significant_bit = inCode(integer, ctype)
         self.result = outCode(self.decryptorEnigma(string), least_significant_bit, ctype)
@@ -455,7 +467,7 @@ class ENIGMA:
             character = self.chsn_reflector[character]
 
             for rotor_index, rotor in enumerate(self.chsn_rotors):
-                character = alphabet[eingmaShift(character, -rotor[self.chsn_rotors_letters[rotor_index].index(alphabet[eingmaShift(character, self.current_position[rotor_index])])])]
+                character = alphabet[eingmaShift(character, -rotor[self._rotor_letter_idx[rotor_index][alphabet[eingmaShift(character, self.current_position[rotor_index])]]])]
 
             character = self.chsn_plugs[character]
 
