@@ -1,12 +1,8 @@
 # EnigmaR — engine
 
-A standalone Enigma-style keystream cipher over an **arbitrary alphabet** (32-symbol
-classic by default, byte mode for any binary, or a custom symbol set), extended and
-hardened well past the museum machine — pure standard library, no dependencies.
+A standalone Enigma-style keystream cipher over an **arbitrary alphabet** (32-symbol classic by default, byte mode for any binary, or a custom symbol set), extended and hardened well past the museum machine — pure standard library, no dependencies.
 
-The library is the `enigmar/` package: `machine` (the mechanism), `cipher` (key
-derivation, keystream cipher, channel), `kex` (Diffie-Hellman handshake), `ratchet`
-and `session` (per-message keys + end-to-end sessions). `import enigmar` reaches it all.
+The library is the `enigmar/` package: `machine` (the mechanism), `cipher` (key derivation, keystream cipher, channel), `kex` (Diffie-Hellman handshake), `ratchet` and `session` (per-message keys + end-to-end sessions). `import enigmar` reaches it all.
 
 ## Easy interface
 
@@ -46,8 +42,7 @@ Dynamics (all opt-in, all keyed off the passphrase):
 ch = Channel("passphrase", chaos=True)
 ```
 
-Cascade — chain several machines of different configs in series (each its own keyed
-Enigma; the stack stays reversible because every layer is an additive keystream):
+Cascade — chain several machines of different configs in series (each its own keyed Enigma; the stack stays reversible because every layer is an additive keystream):
 
 ```python
 from enigmar import Cascade
@@ -63,8 +58,7 @@ ch = Channel("passphrase", alphabet=Alphabet.of_bytes())
 nonce, ct, tag = ch.send(b"\x00\xff any bytes at all")   # ct is bytes
 ```
 
-The alphabet is a codec at the edge; everything inside is `mod N` over `range(N)`,
-so nothing about the mechanism is tied to 32 symbols.
+The alphabet is a codec at the edge; everything inside is `mod N` over `range(N)`, so nothing about the mechanism is tied to 32 symbols.
 
 ## The machine
 
@@ -81,19 +75,14 @@ ct = m.encode("HELLO.WORLD")
 
 ## Security
 
-The engine closes each classic-Enigma break (self-map crib, reciprocity, known wiring,
-regular stepping) and adds modern hygiene: a scrypt KDF, nonce discipline, encrypt-then-MAC
-authentication, an optional `keyfile`, an authenticated Diffie-Hellman handshake, and a
-per-message ratchet. The bar is **cost, not impossibility** — and effective security equals
-the entropy you inject, not the size of the (unbounded) config space: a memorised passphrase
-holds ~40–60 bits, a random `keyfile=os.urandom(128)` injects 1024. Homemade and unreviewed;
-for high-stakes secrets use a vetted cipher (AES-GCM / ChaCha20-Poly1305).
+The engine closes each classic-Enigma break (self-map crib, reciprocity, known wiring, regular stepping) and adds modern hygiene: a scrypt KDF, nonce discipline, encrypt-then-MAC authentication, an optional `keyfile`, an authenticated Diffie-Hellman handshake, and a per-message ratchet. The bar is **cost, not impossibility** — and effective security equals
+the entropy you inject, not the size of the (unbounded) config space: a memorised passphrase holds ~40–60 bits, a random `keyfile=os.urandom(128)` injects 1024. Homemade and unreviewed; for high-stakes secrets use a vetted cipher (AES-GCM / ChaCha20-Poly1305).
 
-The **why** — each mechanism, the measured keystream numbers, the key-space accounting, and
-the honest boundaries — lives in **[DESIGN.md](DESIGN.md)**.
+**AES vs this, precisely.** Both are "just math" once running (table lookups + modular arithmetic) — the "rotors/wiring" are permutation arrays, not physical connections. The real difference: **AES is structured, provable algebra with a fixed public transform** (its GF(2⁸) S-box is chosen so resistance can be *proven*; only the key is secret). **This is unstructured, key-derived permutations you can only *measure*** — the whole wiring comes from the key, so there is no algebraic structure to prove about (or, hopefully, to attack). That missing structure is exactly why AES carries a badge and this doesn't: it is what lets AES be proven rather than only measured. Unreviewed ≠ broken, but proven beats measured — so for real secrets, reach for the vetted cipher.
 
-*For art's sake, `python demos/maxout.py` builds a 4096-symbol, 256-rotor machine
-(≈ 2^11,000,000 configurations, a 3.4-million-digit number) and round-trips a message.*
+The **why** — each mechanism, the measured keystream numbers, the key-space accounting, and the honest boundaries — lives in **[DESIGN.md](DESIGN.md)**.
+
+*For art's sake, `python demos/maxout.py` builds a 4096-symbol, 256-rotor machine (≈ 2^11,000,000 configurations, a 3.4-million-digit number) and round-trips a message.*
 
 ## Command line
 
@@ -103,12 +92,13 @@ python cli.py decrypt -p hunter2 < msg.er                      # verifies, then 
 python cli.py rng -p hunter2 -n 32                             # reproducible random bytes
 ```
 
-Passphrase via `-p`, the `ENIGMAR_PASS` env var, or an interactive prompt; `--keyfile FILE`
-adds a second secret, `--chaos` turns on every keyed dynamic. Byte mode, encrypt-then-MAC.
+Passphrase via `-p`, the `ENIGMAR_PASS` env var, or an interactive prompt; `--keyfile FILE` adds a second secret, `--chaos` turns on every keyed dynamic. Byte mode, encrypt-then-MAC.
 
-`cli.py chat` runs a **double-ratchet session** across processes (persisted state files):
-`identity` → `prekey` (responder) → `start` (initiator) → `accept`, then `send` / `recv` —
-each message rides a fresh key, the DH ratchet turns automatically, out-of-order is handled.
+`cli.py chat` runs a **double-ratchet session** — each message rides a fresh key, the DH
+ratchet turns automatically, out-of-order is handled. Two ways to drive it: a **live socket**
+(`chat listen` / `chat connect` — X3DH handshake on the wire, then type to send), or
+**message-at-a-time over files** (`identity` → `prekey` → `start` → `accept`, then `send` /
+`recv` with a persisted state file).
 
 ## Sharing a key — Diffie–Hellman handshake
 
@@ -124,10 +114,9 @@ ch = Channel("", keyfile=ka, alphabet=Alphabet.of_bytes())   # kb identical on t
 The shared secret is `g^(ab) mod p` over a 2048-bit MODP group — an eavesdropper sees the
 public halves and still can't compute it.
 
-**Authenticated** (3-DH / mini-X3DH): give each side a long-term `Identity` and pin the
-peer's identity public key out of band; the session key then mixes the ephemeral DH with
-two identity-bound DHs, so a man-in-the-middle who lacks an identity private key derives a
-different key and fails the MAC:
+**Authenticated** (3-DH / mini-X3DH): 
+give each side a long-term `Identity` and pin the
+peer's identity public key out of band; the session key then mixes the ephemeral DH with two identity-bound DHs, so a man-in-the-middle who lacks an identity private key derives a different key and fails the MAC:
 
 ```python
 from enigmar import Identity, Handshake, authenticated_key, Ratchet, Channel, Alphabet
@@ -154,8 +143,8 @@ Together this is the Signal shape: `DH (bits) → ratchet (forward secrecy) → 
 ```
 enigmar/   machine, cipher, kex, ratchet, session  (the library package)
 tests/     pytest suite, split by topic + randtest.py (keystream metrics)
-demos/     demo.py, maxout.py                       (runnable showcases)
-cli.py     command-line entry point
+demos/     demo.py, maxout.py, fpe.py               (runnable showcases)
+cli.py     command-line entry point (encrypt / rng / chat)
 ```
 
 ## Run

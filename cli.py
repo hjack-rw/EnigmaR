@@ -15,7 +15,9 @@ import base64
 import getpass
 import json
 import os
+import socket
 import sys
+import threading
 
 from enigmar import Channel, StreamCipher, Alphabet
 from enigmar import Identity, Handshake, authenticated_key, Session
@@ -148,6 +150,86 @@ def cmd_recv(args) -> int:
     return 0
 
 
+# --- chat over a real socket ------------------------------------------------
+# `listen` binds and waits; `connect` dials in. They run the X3DH handshake over
+# the wire, then a live double-ratchet conversation: type a line to send, incoming
+# lines print. Pass --id FILE (from `chat identity`) to authenticate with a pinned
+# identity; without it a fresh identity is made and the exchange is unauthenticated.
+
+def _identity(args) -> "Identity | None":
+    if not getattr(args, "id", None):
+        return None
+    d = _load(args.id)
+    return Identity(int(d["priv"], 16))
+
+
+def _handshake_over(f, initiator: bool, me) -> Session:
+    me = me or Identity()
+    if initiator:                                    # dial-in side is the initiator
+        peer = json.loads(f.readline())              # responder's prekey bundle
+        eph = Handshake()
+        root = authenticated_key(me, eph, int(peer["id_pub"], 16), int(peer["eph_pub"], 16),
+                                 initiator=True)
+        sess = Session.initiator(root, int(peer["eph_pub"], 16))
+        f.write(json.dumps({"id_pub": format(me.public, "x"),
+                            "eph_pub": format(eph.public, "x")}) + "\n"); f.flush()
+    else:                                            # listening side is the responder
+        eph = Handshake()
+        f.write(json.dumps({"id_pub": format(me.public, "x"),
+                            "eph_pub": format(eph.public, "x")}) + "\n"); f.flush()
+        peer = json.loads(f.readline())              # initiator's hello
+        root = authenticated_key(me, eph, int(peer["id_pub"], 16), int(peer["eph_pub"], 16),
+                                 initiator=False)
+        sess = Session.responder(root, eph)
+    return sess
+
+
+def _chat_loop(f, sess: Session) -> None:
+    lock = threading.Lock()
+
+    def rx():
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            with lock:
+                try:
+                    msg = sess.receive(line).decode(errors="replace")
+                except Exception as e:               # noqa: BLE001 - report and keep going
+                    msg = f"[undecryptable: {e}]"
+            sys.stdout.write(f"\rpeer> {msg}\nyou> "); sys.stdout.flush()
+
+    threading.Thread(target=rx, daemon=True).start()
+    sys.stdout.write("secure channel up — type to send, Ctrl-D / /q to quit\nyou> ")
+    sys.stdout.flush()
+    for line in sys.stdin:
+        line = line.rstrip("\n")
+        if line in ("/q", "/quit"):
+            break
+        with lock:
+            blob = sess.send(line.encode())
+        f.write(blob + "\n"); f.flush()
+        sys.stdout.write("you> "); sys.stdout.flush()
+
+
+def cmd_listen(args) -> int:
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((args.host, args.port)); srv.listen(1)
+    sys.stderr.write(f"listening on {args.host}:{args.port} …\n")
+    conn, addr = srv.accept()
+    sys.stderr.write(f"peer connected from {addr[0]}:{addr[1]}\n")
+    f = conn.makefile("rw", encoding="utf-8", newline="\n")
+    _chat_loop(f, _handshake_over(f, initiator=False, me=_identity(args)))
+    return 0
+
+
+def cmd_connect(args) -> int:
+    f = socket.create_connection((args.host, args.port)).makefile("rw", encoding="utf-8", newline="\n")
+    _chat_loop(f, _handshake_over(f, initiator=True, me=_identity(args)))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="enigmar", description="EnigmaR cipher / reproducible RNG")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -188,6 +270,12 @@ def build_parser() -> argparse.ArgumentParser:
     c_rc = cs.add_parser("recv", help="decrypt a blob (arg or stdin)")
     c_rc.add_argument("--state", required=True); c_rc.add_argument("blob", nargs="?")
     c_rc.set_defaults(fn=cmd_recv)
+    c_ls = cs.add_parser("listen", help="live socket chat: wait for a peer (responder)")
+    c_ls.add_argument("--host", default="127.0.0.1"); c_ls.add_argument("--port", type=int, default=9999)
+    c_ls.add_argument("--id"); c_ls.set_defaults(fn=cmd_listen)
+    c_cn = cs.add_parser("connect", help="live socket chat: dial a peer (initiator)")
+    c_cn.add_argument("--host", default="127.0.0.1"); c_cn.add_argument("--port", type=int, default=9999)
+    c_cn.add_argument("--id"); c_cn.set_defaults(fn=cmd_connect)
     return p
 
 
