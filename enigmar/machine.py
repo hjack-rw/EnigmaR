@@ -319,6 +319,12 @@ class Enigma:
         self.plug_stream = plug_stream
         self.reflector_bank = reflector_bank
         self.refl_stream = refl_stream
+        # Hot-loop fast-path flags (config is fixed for a machine's lifetime):
+        # skip the per-symbol plugboard-offset math and drift walk when unused.
+        self._simple_plug = not self.plug_shift and self.plug_stream is None
+        self._any_drift = any(r.notch_drift or r.ring_drift for r in self.rotors)
+        self._nrotors = len(self.rotors)
+        self._simple_reflector = self.reflector_bank is None
 
     @classmethod
     def configure(cls, rotor_names, reflector_name, positions="", rings="", plugs=""):
@@ -330,17 +336,20 @@ class Enigma:
     def _advance(self) -> None:
         """Canonical double-stepping, generalised. Notches read BEFORE any rotor
         moves; static (Greek) rotors never move."""
-        notch = [r.at_notch for r in self.rotors]
-        n = len(self.rotors)
+        rotors = self.rotors
+        n = self._nrotors
+        # Inline of Rotor.at_notch to avoid n property dispatches per symbol.
+        notch = [(not r.static) and (((r.position - r._ndrift) % r.N) in r.notches)
+                 for r in rotors]
         will_step = [False] * n
         will_step[-1] = True
         for i in range(n - 1):
             if notch[i + 1]:
                 will_step[i] = True
         for i in range(1, n - 1):
-            if notch[i] and self.rotors[i].double_step:   # double-step anomaly (per-rotor)
+            if notch[i] and rotors[i].double_step:        # double-step anomaly (per-rotor)
                 will_step[i] = True
-        for r, do in zip(self.rotors, will_step):
+        for r, do in zip(rotors, will_step):
             if do:
                 r.step()
 
@@ -357,8 +366,9 @@ class Enigma:
             self._plug_offset = (self._plug_offset + self.plug_shift) % self.N
         if self.plug_stream is not None:                  # keyed irregular re-seat
             self._plug_offset = (self._plug_offset + next(self.plug_stream)) % self.N
-        for r in self.rotors:                             # keyed notch/ring drift
-            r.drift()
+        if self._any_drift:                               # keyed notch/ring drift
+            for r in self.rotors:
+                r.drift()
 
     def _plug(self, c: int) -> int:
         """Plugboard swap at the current rotation offset. Conjugating an
@@ -374,20 +384,32 @@ class Enigma:
         return self.reflector
 
     def encode_index(self, i: int) -> int:
-        """The core transform on an integer symbol in range(N)."""
+        """The core transform on an integer symbol in range(N).
+
+        The rotor passes are inlined here (rather than calling the Rotor
+        methods) so the shift is computed once per rotor per symbol instead of
+        recomputed on each forward/backward hop, and the whole path stays in
+        local variables. Output is identical to Rotor.forward_through/backward_through.
+        """
         self._advance()
-        c = self._plug(i)
-        reflector = self._active_reflector()
-        if reflector is None:
-            for rotor in reversed(self.rotors):
-                c = rotor.forward_through(c)
-        else:
-            for rotor in reversed(self.rotors):
-                c = rotor.forward_through(c)
-            c = reflector.reflect(c)
-            for rotor in self.rotors:
-                c = rotor.backward_through(c)
-        return self._plug(c)
+        N = self.N
+        rotors = self.rotors
+        n = self._nrotors
+        pmap = self.plugboard.map
+        simple = self._simple_plug
+        c = pmap[i] if simple else self._plug(i)
+        # Position is fixed for this symbol, so each rotor's shift is constant.
+        shifts = [(r.position - r.ring - r._rdrift) % N for r in rotors]
+        reflector = self.reflector if self._simple_reflector else self._active_reflector()
+        for k in range(n - 1, -1, -1):                    # forward: fast rotor first
+            r, s = rotors[k], shifts[k]
+            c = (r.forward[(c + s) % N] - s) % N
+        if reflector is not None:
+            c = reflector.map[c]
+            for k in range(n):                            # backward: slow rotor first
+                r, s = rotors[k], shifts[k]
+                c = (r.backward[(c + s) % N] - s) % N
+        return pmap[c] if simple else self._plug(c)
 
     def encode_char(self, sym):
         return self.alphabet.from_index(self.encode_index(self.alphabet.to_index(sym)))
