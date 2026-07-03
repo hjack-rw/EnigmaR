@@ -589,6 +589,37 @@ def test_cascade_byte_mode_round_trips():
     assert cas.decrypt(cas.encrypt(data)) == data
 
 
+# --- keyfile: a second independent secret folded into the KDF ----------------
+
+def test_keyfile_changes_keystream_and_round_trips():
+    msg = "".join(E.ALPHABET) * 3
+    plain = E.StreamCipher.from_passphrase("pw", nonce="n").encrypt(msg)
+    kf = E.StreamCipher.from_passphrase("pw", nonce="n", keyfile=b"\x00\x01secret")
+    withkey = kf.encrypt(msg)
+    assert withkey != plain, "keyfile must change the keystream"
+    assert kf.decrypt(withkey) == msg
+
+
+def test_wrong_keyfile_does_not_recover():
+    msg = "MEET.AT.DAWN!"
+    ct = E.StreamCipher.from_passphrase("pw", nonce="n", keyfile=b"right").encrypt(msg)
+    out = E.StreamCipher.from_passphrase("pw", nonce="n", keyfile=b"wrong").decrypt(ct)
+    assert out != msg, "a wrong keyfile must not decrypt"
+
+
+def test_channel_keyfile_round_trips_and_wrong_keyfile_fails_auth():
+    a = E.Channel("pw", keyfile=b"shared-file")
+    b = E.Channel("pw", keyfile=b"shared-file")
+    nonce, ct, tag = a.send("HELLO.WORLD")
+    assert b.receive(nonce, ct, tag) == "HELLO.WORLD"
+    mallory = E.Channel("pw", keyfile=b"other-file")
+    try:
+        mallory.receive(nonce, ct, tag)
+    except ValueError:
+        return
+    raise AssertionError("wrong keyfile must fail authentication")
+
+
 def run():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

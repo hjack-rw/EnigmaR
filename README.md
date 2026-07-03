@@ -39,6 +39,7 @@ Dynamics (all opt-in, all keyed off the passphrase):
 | `randomize_double_step` | pick the double-step per rotor from the key |
 | `randomize_static` | any rotor may be keyed-static (the fast rotor always moves) |
 | `drift` | the notch, ring window, and plugboard **walk over the run** — no setting stays frozen |
+| `keyfile` | a second independent secret (bytes/str) mixed into the KDF — the one knob that adds real key entropy |
 | `chaos` | turn **every** keyed dynamic on at once |
 
 ```python
@@ -129,14 +130,30 @@ here the additive keystream erases it.* Holds under `chaos=True` and through a `
 
 | | size | what it is |
 |---|---|---|
-| nominal config space | ~2²⁰⁰⁰⁰ | combinatorial (byte mode, chaos) — diffusion, not security |
-| reachable machines | **2¹⁰²⁴** | hard ceiling: the machine is a deterministic function of a 128-byte seed (pigeonhole) |
-| effective security | **= passphrase entropy** | the only number that counts — an attacker guesses the passphrase, not the machine |
+| nominal config space | **unbounded** | ≈ `R · log2(N!)` bits (R rotors, N symbols) — no cap; grows without limit as you add rotors or enlarge the alphabet. Diffusion, not security |
+| reachable machines | **2^(8·seedlen)** | hard ceiling: the machine is a deterministic function of the KDF seed (pigeonhole). Default 128-byte seed → 2¹⁰²⁴; scale the seed to raise it |
+| effective security | **= entropy you inject** | the only number that counts — an attacker guesses the *key*, not the machine |
 
 A deterministic function of the key spreads its entropy across an astronomical
 configuration; it cannot add any. The huge config space is diffusion. What makes a guess
-expensive is scrypt (`N=2**16`, ~64 MB/guess); what caps security is the passphrase.
-Want a higher floor: a longer passphrase or a keyfile — not more knobs.
+expensive is scrypt (`N=2**16`, ~64 MB/guess); what caps security is the entropy you feed
+in. A memorised passphrase holds ~40–60 bits; a random **`keyfile=os.urandom(128)`** injects
+1024 bits, lifting the floor to meet the seed ceiling — the one knob that adds real bits.
+Past 2²⁵⁶ it is all diffusion anyway (2²⁵⁶ is beyond any physical brute force forever).
+
+*For art's sake, `python maxout.py` builds a 4096-symbol, 256-rotor machine — ≈ 2^11,000,000
+distinct configurations (a 3.4-million-digit number) — and round-trips a message through it.*
+
+## Command line
+
+```bash
+echo -n "secret" | python cli.py encrypt -p hunter2 > msg.er   # authenticated blob
+python cli.py decrypt -p hunter2 < msg.er                      # verifies, then prints
+python cli.py rng -p hunter2 -n 32                             # reproducible random bytes
+```
+
+Passphrase via `-p`, the `ENIGMAR_PASS` env var, or an interactive prompt; `--keyfile FILE`
+adds a second secret, `--chaos` turns on every keyed dynamic. Byte mode, encrypt-then-MAC.
 
 ## Run
 

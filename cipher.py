@@ -111,12 +111,26 @@ def _derive_reflection(stream, N, reflectorless, reflectors):
     return _derive_involution(stream, N), None, _derive_plugboard(stream, N)
 
 
+def _combine_secret(passphrase, keyfile) -> bytes:
+    """Fold a second secret (keyfile) into the passphrase before the KDF. Two
+    independent secrets → their entropies add (both stretched by scrypt). Length-
+    prefixed so ('ab','c') and ('a','bc') can't collide. Empty keyfile = no-op."""
+    if isinstance(passphrase, str):
+        passphrase = passphrase.encode()
+    if not keyfile:
+        return passphrase
+    if isinstance(keyfile, str):
+        keyfile = keyfile.encode()
+    return len(passphrase).to_bytes(4, "big") + passphrase + keyfile
+
+
 def derive_machine(passphrase, *, nonce=b"", alphabet=None, n_rotors=3,
                    irregular_step: bool = False, moving_plugboard: bool = False,
                    reflectors: int = 1, reflectorless: bool = False,
                    double_step: bool = True, randomize_double_step: bool = False,
                    randomize_static: bool = False, drift: bool = False, chaos: bool = False,
-                   kdf_n: int = _SCRYPT_N, salt: bytes = b"enigmar-stage3") -> Enigma:
+                   keyfile: bytes = b"", kdf_n: int = _SCRYPT_N,
+                   salt: bytes = b"enigmar-stage3") -> Enigma:
     """Derive a full Enigma from a passphrase. Same (passphrase, nonce, options)
     always yields the same machine. Works over any alphabet.
 
@@ -126,15 +140,16 @@ def derive_machine(passphrase, *, nonce=b"", alphabet=None, n_rotors=3,
     randomize_static makes any rotor keyed-static (the fast rotor always moves).
     drift makes the notch, ring window, and plugboard walk over the run (keyed, so
     both sides stay in lockstep). chaos turns every keyed dynamic on at once.
+    keyfile is an optional second secret (bytes/str) mixed into the KDF — the one
+    knob that adds real key entropy, since it is independent secret material.
     """
     alphabet = alphabet or CLASSIC
     N = alphabet.N
-    if isinstance(passphrase, str):
-        passphrase = passphrase.encode()
+    secret = _combine_secret(passphrase, keyfile)
     if isinstance(nonce, str):
         nonce = nonce.encode()
 
-    seed = _scrypt(passphrase, salt + nonce, n=kdf_n, dklen=_SEED_DKLEN)
+    seed = _scrypt(secret, salt + nonce, n=kdf_n, dklen=_SEED_DKLEN)
     stream = _byte_stream(seed)
 
     if chaos:
@@ -300,11 +315,13 @@ class Channel:
     derived from the passphrase under a separate salt, independent of the machine.
     """
 
-    def __init__(self, passphrase, *, kdf_n: int = _SCRYPT_N, **opts):
+    def __init__(self, passphrase, *, kdf_n: int = _SCRYPT_N, keyfile: bytes = b"", **opts):
         self._pass = passphrase
-        self._opts = dict(opts, kdf_n=kdf_n)
+        self._opts = dict(opts, kdf_n=kdf_n, keyfile=keyfile)
         self._alphabet = opts.get("alphabet") or CLASSIC
-        self._mackey = _scrypt(passphrase, b"enigmar-mac", n=kdf_n, dklen=32)
+        # MAC key also binds the keyfile, so a wrong keyfile fails authentication too.
+        self._mackey = _scrypt(_combine_secret(passphrase, keyfile), b"enigmar-mac",
+                               n=kdf_n, dklen=32)
         self._used: set[str] = set()
         self._seen: set[str] = set()
 
