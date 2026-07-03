@@ -41,11 +41,28 @@ the input driving them. A periodic counter feed resonates with the fast rotor (s
 period) and produces a biased, correlated keystream; output-feedback correlates
 adjacent symbols. The engine instead feeds the machine a high-entropy byte stream
 seeded from the machine's own config fingerprint, which measures uniform and
-independent. `randtest.py` is the gate (chi-square + lag-1 autocorrelation); it can
+independent. `tests/randtest.py` is the gate (chi-square + lag-1 autocorrelation); it can
 falsify patterns, never prove randomness.
 
 The plain reading: the machine is a keyed permutation / substitution cipher, not a
 randomness source. It mixes and diffuses; the entropy comes from the key.
+
+Measured, byte mode, 200 000 samples (`python tests/randtest.py`) — the tests can only
+falsify randomness, but the keystream passes every one:
+
+| metric | keystream | cipher of all-zeros* | ideal |
+|---|---|---|---|
+| Shannon entropy | **7.9991 / 8** bits | 7.999 / 8 | 8.0 |
+| chi-square (256 bins) | 257 | 243 | ~255 (0.01 crit ~330) |
+| zlib compression | **1.0004×** | 1.0004× | 1.0 (incompressible) |
+| monobit \|z\| | 0.86 | 0.04 | < 3 |
+| autocorrelation @ lags 1–64 | all ≈ ±0.002 | all ≈ ±0.006 | 0 |
+
+*\*Encrypting an all-zeros input — maximally structured — still yields output
+indistinguishable from random: the exact case the original audio engine leaked, erased by
+the additive keystream. Holds under `chaos=True` and through a `Cascade`. Head-to-head, the
+keystream is statistically indistinguishable from Python's `random` and `os.urandom` — as
+good as a standard PRNG, not better, because the entropy is the key's, not the rotors'.*
 
 ## Dynamics — every component keyed and time-varying
 
@@ -79,13 +96,20 @@ and reproducible for encrypt/decrypt:
   Each layer is an additive keystream, so the stack is reversible however the machines
   differ; layering deepens diffusion but shares the one seed.
 
-These add period, diffusion, and secret internal state. They extend the *derived*
-secret state (they are keyed off the same seed) — real, but bounded by the seed's
-entropy, not free new key bits. That bound is the honest limit of "no limits": the
-nominal config space is enormous (~2**20000 in byte mode), but the machine is a
-deterministic function of a 128-byte seed, so at most **2**1024** distinct machines are
-ever reachable (pigeonhole) — and effective security is smaller still, equal to the
-passphrase entropy run through the KDF, not the size of the config space.
+These add period, diffusion, and secret internal state — real, but keyed off the same
+seed, so not free new key bits. Three numbers, only the last is security:
+
+- **Nominal config space — unbounded.** ≈ `R · log2(N!)` bits (R rotors of N symbols);
+  no cap, it grows without limit as you add rotors or enlarge the alphabet. `~2**20000`
+  is just one instance (byte mode, 12 rotors), not a ceiling. Pure diffusion.
+- **Reachable machines — 2^(8·seedlen).** The whole machine is a deterministic function
+  of the KDF seed, so no more distinct machines exist than seed values (pigeonhole). The
+  default 128-byte seed caps it at **2**1024**; scale the seed to raise it. Still not
+  security — just how much of the config space the key can actually address.
+- **Effective security — the entropy you inject.** Smaller than both, and the only one an
+  attacker fights. A memorised passphrase holds ~40–60 bits; `keyfile=os.urandom(128)`
+  injects 1024, lifting the floor to meet the seed ceiling. Past **2**256** it is all
+  diffusion anyway — 2**256 is beyond any physical brute force forever (Landauer bound).
 
 ## Any alphabet
 
@@ -93,6 +117,41 @@ The 32-symbol alphabet was an audio artifact (2⁵ = one symbol per 5 audio bits
 Everything inside is `mod N` over `range(N)`; the alphabet is just a codec at the edge.
 `Alphabet.of_bytes()` makes it a general **byte-stream cipher** over arbitrary binary;
 `Alphabet("…")` takes any custom symbol set; the 32-symbol classic is the default.
+
+## The key: strength, agreement, forward secrecy
+
+The engine is the lock; the key is the strength (see *What it hangs on*). This layer is
+where the key comes from — and, deliberately, it is **standard primitives, not home-grown
+ones**: inventing your own security primitive is the amateur mistake, so the strong parts
+are borrowed and left untouched.
+
+- **`keyfile` — the one knob that adds real bits.** A second secret folded into the scrypt
+  input (length-prefixed, binding both the machine seed and the MAC key). Everything else
+  is diffusion; this is the only lever that raises effective entropy, because it *is*
+  independent secret material. A random `os.urandom(128)` keyfile takes the floor to the
+  seed ceiling.
+- **Diffie-Hellman handshake (`kex.Handshake`).** Two parties agree a key over a public
+  channel with nothing pre-shared — `g^(ab) mod p` over a 2048-bit MODP group; the
+  eavesdropper sees the public halves and still can't compute it. This is the one-way
+  trapdoor a naive keyless exchange lacks.
+- **Authenticated handshake (`kex.authenticated_key`, 3-DH / mini-X3DH).** Bare DH stops a
+  passive listener, not an active man-in-the-middle. With a long-term `Identity` per party
+  and the peer's identity key pinned out of band, the session key mixes the ephemeral DH
+  with two identity-bound DHs; a MITM lacking an identity private key derives a different
+  key and fails the MAC.
+- **Ratchet (`ratchet.Ratchet`).** A one-way HMAC chain gives a fresh key per message; the
+  chain only moves forward, so deleting state keeps past messages locked (forward secrecy)
+  and a leaked message key reveals nothing else.
+- **Session (`session.Session`).** Ties it together end to end: two directional ratchets
+  plus `dh_ratchet()`, which folds a fresh DH secret into the root for post-compromise
+  security. This is the **Signal shape** — `DH → authenticated_key → Ratchet → Channel` —
+  reached from the Enigma end, in pure stdlib.
+
+The honest accounting: the parts that give *strength* (scrypt, DH, HMAC, the ratchet
+construction) are standard and not invented here; the parts written here (the Enigma
+mechanism and its dynamics) are *diffusion* and add no security. Original contribution and
+security-strength are near-disjoint — which is correct, not a shortfall: the competent move
+in crypto is to compose vetted primitives, not to roll your own.
 
 ## Honest boundary
 
@@ -104,10 +163,11 @@ Everything inside is `mod N` over `range(N)`; the alphabet is just a codec at th
 - **Nonce reuse is fatal.** Two messages under the same (key, nonce) share a keystream:
   `C1 - C2 == P1 - P2` leaks the plaintext difference (two-time-pad). `Channel` enforces
   no reuse; don't bypass it.
-- **Weak passphrase = weak key.** With the structural attacks closed, guessing the
-  passphrase is the *only* way in — so the KDF cost is the security parameter that
-  matters. scrypt runs at `N=2**16` (~64 MB, memory-hard) and is exposed as `kdf_n` to
-  raise further; still, a low-entropy passphrase loses regardless. Entropy in, entropy out.
+- **Weak passphrase = weak key.** With the structural attacks closed, guessing the key is
+  the *only* way in — so the KDF cost and the entropy you feed it are the parameters that
+  matter. scrypt runs at `N=2**16` (~64 MB, memory-hard), exposed as `kdf_n`; a random
+  `keyfile` adds real bits (a memorised passphrase can't hold more than ~40–60). Still, a
+  low-entropy secret loses regardless. Entropy in, entropy out.
 - **Authentication.** The raw `StreamCipher` is malleable — an additive keystream means a
   flipped ciphertext symbol is a *controlled* edit to the plaintext, undetectable on its
   own. `Channel` wraps encrypt-then-MAC (HMAC-SHA256 under a separate derived key,

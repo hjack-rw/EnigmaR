@@ -1,13 +1,12 @@
 # EnigmaR — engine
 
-A standalone Enigma-style cipher engine over a **32-symbol alphabet**
-(`A–Z . , ! ? : '`), extended and hardened well past the museum machine.
+A standalone Enigma-style keystream cipher over an **arbitrary alphabet** (32-symbol
+classic by default, byte mode for any binary, or a custom symbol set), extended and
+hardened well past the museum machine — pure standard library, no dependencies.
 
-This branch (`enigma-engine`) is the engine only — decoupled from audio and Flask.
-The original audio app (WAV encryption with multiple ciphers) lives on `main`.
-
-Modules: `machine.py` (the mechanism), `cipher.py` (key derivation, keystream
-cipher, channel), `enigma.py` (umbrella re-export).
+The library is the `enigmar/` package: `machine` (the mechanism), `cipher` (key
+derivation, keystream cipher, channel), `kex` (Diffie-Hellman handshake), `ratchet`
+and `session` (per-message keys + end-to-end sessions). `import enigmar` reaches it all.
 
 ## Easy interface
 
@@ -15,7 +14,7 @@ Configure once, send/receive; nonce reuse handled for you and every message is
 authenticated (encrypt-then-MAC):
 
 ```python
-from enigma import Channel, Config
+from enigmar import Channel, Config
 
 cfg = Config(n_rotors=4, irregular_step=True, moving_plugboard=True, reflectors=3)
 alice = Channel("shared-passphrase", **vars(cfg))
@@ -51,7 +50,7 @@ Cascade — chain several machines of different configs in series (each its own 
 Enigma; the stack stays reversible because every layer is an additive keystream):
 
 ```python
-from enigma import Cascade
+from enigmar import Cascade
 cas = Cascade("passphrase", [dict(chaos=True), dict(reflectorless=True), dict(drift=True)])
 ct = cas.encrypt("MEET.AT.DAWN")            # decrypt unwinds the layers in reverse
 ```
@@ -59,7 +58,7 @@ ct = cas.encrypt("MEET.AT.DAWN")            # decrypt unwinds the layers in reve
 Byte mode — the same engine on any binary:
 
 ```python
-from enigma import Channel, Alphabet
+from enigmar import Channel, Alphabet
 ch = Channel("passphrase", alphabet=Alphabet.of_bytes())
 nonce, ct, tag = ch.send(b"\x00\xff any bytes at all")   # ct is bytes
 ```
@@ -74,75 +73,27 @@ so nothing about the mechanism is tied to 32 symbols.
 - Rotor and reflector wirings carried over from the original project.
 
 ```python
-from enigma import Enigma, Rotor, Reflector
+from enigmar import Enigma, Rotor, Reflector
 
 m = Enigma.configure("321", "B", positions="KDO", rings="AAA", plugs="AB CD")
 ct = m.encode("HELLO.WORLD")
 ```
 
-## How it's secured
+## Security
 
-Each classic-Enigma break is closed, not just patched over:
+The engine closes each classic-Enigma break (self-map crib, reciprocity, known wiring,
+regular stepping) and adds modern hygiene: a scrypt KDF, nonce discipline, encrypt-then-MAC
+authentication, an optional `keyfile`, an authenticated Diffie-Hellman handshake, and a
+per-message ratchet. The bar is **cost, not impossibility** — and effective security equals
+the entropy you inject, not the size of the (unbounded) config space: a memorised passphrase
+holds ~40–60 bits, a random `keyfile=os.urandom(128)` injects 1024. Homemade and unreviewed;
+for high-stakes secrets use a vetted cipher (AES-GCM / ChaCha20-Poly1305).
 
-- **Fixed-point reflectors** — `Reflector.from_pairs(...)` builds a decryptable
-  involution that *can* map a symbol to itself, so the "a letter never encrypts to
-  itself" crib is gone.
-- **Keystream mode** (`StreamCipher`) — the rotors drive a keystream combined by
-  modular add, so encryption isn't a reflecting substitution: no reciprocal pairing,
-  no self-map structure. The keystream is fed the machine's config-fingerprint byte
-  stream and measures uniform and independent (`randtest.py`).
-- **Key-derived secret wiring** — a passphrase, stretched with stdlib scrypt, derives
-  the entire secret machine. The wiring is re-derived on both ends and never
-  transmitted, so there is no codebook/key-list to capture and known wiring buys an
-  attacker nothing.
-- **Unpredictable stepping** (SIGABA-style) — a keyed schedule decides which rotors
-  advance, so internal positions can't be read off the message index.
-- **Nonce discipline** (`Channel`) — a fresh 128-bit nonce per message, reuse and
-  replay rejected, so no two messages ever share a keystream.
-- **Authentication** (`Channel`, encrypt-then-MAC) — every message carries an
-  HMAC-SHA256 tag under a separate key-derived MAC key, verified before decryption.
-  A stream cipher alone is malleable; the MAC turns silent tampering into a hard error.
+The **why** — each mechanism, the measured keystream numbers, the key-space accounting, and
+the honest boundaries — lives in **[DESIGN.md](DESIGN.md)**.
 
-The bar is **cost, not impossibility**: a reversible symmetric cipher, deterministic
-by design, judged like any cipher on how uneconomical it is to break. It has no
-adversarial-cryptanalysis track record the way AES/ChaCha do — for high-stakes secrets
-those remain the right choice. See [DESIGN.md](DESIGN.md) for the reasoning behind each
-mechanism.
-
-## Measured
-
-Keystream quality, byte mode, 200 000 samples (`python randtest.py`). These tests can
-only *falsify* randomness — they don't prove it — but the engine passes every one:
-
-| metric | keystream | cipher of all-zeros* | ideal |
-|---|---|---|---|
-| Shannon entropy | **7.9991 / 8** bits | 7.999 / 8 | 8.0 |
-| chi-square (256 bins) | 257 | 243 | ~255 (0.01 crit ~330) |
-| zlib compression | **1.0004×** | 1.0004× | 1.0 (incompressible) |
-| monobit \|z\| | 0.86 | 0.04 | < 3 |
-| autocorrelation @ lags 1–64 | all ≈ ±0.002 | all ≈ ±0.006 | 0 |
-
-*\*Encrypting an all-zeros input — maximally structured — still yields output
-indistinguishable from random. That is the exact case the original audio engine leaked;
-here the additive keystream erases it.* Holds under `chaos=True` and through a `Cascade`.
-
-## Key space — three numbers, only one is security
-
-| | size | what it is |
-|---|---|---|
-| nominal config space | **unbounded** | ≈ `R · log2(N!)` bits (R rotors, N symbols) — no cap; grows without limit as you add rotors or enlarge the alphabet. Diffusion, not security |
-| reachable machines | **2^(8·seedlen)** | hard ceiling: the machine is a deterministic function of the KDF seed (pigeonhole). Default 128-byte seed → 2¹⁰²⁴; scale the seed to raise it |
-| effective security | **= entropy you inject** | the only number that counts — an attacker guesses the *key*, not the machine |
-
-A deterministic function of the key spreads its entropy across an astronomical
-configuration; it cannot add any. The huge config space is diffusion. What makes a guess
-expensive is scrypt (`N=2**16`, ~64 MB/guess); what caps security is the entropy you feed
-in. A memorised passphrase holds ~40–60 bits; a random **`keyfile=os.urandom(128)`** injects
-1024 bits, lifting the floor to meet the seed ceiling — the one knob that adds real bits.
-Past 2²⁵⁶ it is all diffusion anyway (2²⁵⁶ is beyond any physical brute force forever).
-
-*For art's sake, `python maxout.py` builds a 4096-symbol, 256-rotor machine — ≈ 2^11,000,000
-distinct configurations (a 3.4-million-digit number) — and round-trips a message through it.*
+*For art's sake, `python demos/maxout.py` builds a 4096-symbol, 256-rotor machine
+(≈ 2^11,000,000 configurations, a 3.4-million-digit number) and round-trips a message.*
 
 ## Command line
 
@@ -155,12 +106,64 @@ python cli.py rng -p hunter2 -n 32                             # reproducible ra
 Passphrase via `-p`, the `ENIGMAR_PASS` env var, or an interactive prompt; `--keyfile FILE`
 adds a second secret, `--chaos` turns on every keyed dynamic. Byte mode, encrypt-then-MAC.
 
+`cli.py chat` runs a **double-ratchet session** across processes (persisted state files):
+`identity` → `prekey` (responder) → `start` (initiator) → `accept`, then `send` / `recv` —
+each message rides a fresh key, the DH ratchet turns automatically, out-of-order is handled.
+
+## Sharing a key — Diffie–Hellman handshake
+
+Agree a key over a public channel with **nothing pre-shared**, then use it as the keyfile:
+
+```python
+from enigmar import Handshake, Channel, Alphabet
+a, b = Handshake(), Handshake()
+ka, kb = a.shared(b.public), b.shared(a.public)   # only a.public / b.public go on the wire
+ch = Channel("", keyfile=ka, alphabet=Alphabet.of_bytes())   # kb identical on the other side
+```
+
+The shared secret is `g^(ab) mod p` over a 2048-bit MODP group — an eavesdropper sees the
+public halves and still can't compute it.
+
+**Authenticated** (3-DH / mini-X3DH): give each side a long-term `Identity` and pin the
+peer's identity public key out of band; the session key then mixes the ephemeral DH with
+two identity-bound DHs, so a man-in-the-middle who lacks an identity private key derives a
+different key and fails the MAC:
+
+```python
+from enigmar import Identity, Handshake, authenticated_key, Ratchet, Channel, Alphabet
+id_a, id_b = Identity(), Identity()          # long-term; pin .public out of band
+ea, eb = Handshake(), Handshake()            # per-session ephemerals
+ka = authenticated_key(id_a, ea, id_b.public, eb.public, initiator=True)
+kb = authenticated_key(id_b, eb, id_a.public, ea.public, initiator=False)   # ka == kb
+```
+
+**Per-message keys** — feed the shared key to a `Ratchet` so every message rides its own
+key; the chain only moves forward, so deleting state keeps past messages locked (forward
+secrecy):
+
+```python
+r = Ratchet(ka)                              # same root on both sides
+key0, key1 = r.next(), r.next()              # fresh 32-byte key per message
+```
+
+Together this is the Signal shape: `DH (bits) → ratchet (forward secrecy) → engine (cipher)`.
+*Still homemade and unreviewed — for real secrets prefer X25519/libsodium.*
+
+## Layout
+
+```
+enigmar/   machine, cipher, kex, ratchet, session  (the library package)
+tests/     pytest suite, split by topic + randtest.py (keystream metrics)
+demos/     demo.py, maxout.py                       (runnable showcases)
+cli.py     command-line entry point
+```
+
 ## Run
 
 ```bash
-python enigma.py          # runs the property tests
-python test_enigma.py     # property tests (or: pytest test_enigma.py)
-python randtest.py        # keystream uniformity / independence gate
+pytest                    # the property-test suite (tests/)
+python tests/randtest.py  # keystream uniformity / independence gate + report
+python demos/demo.py      # showcase
 ```
 
-No dependencies — pure standard library.
+No dependencies — pure standard library (pytest only to run the suite).

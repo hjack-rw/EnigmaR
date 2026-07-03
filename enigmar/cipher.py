@@ -13,7 +13,7 @@ import hmac
 import secrets
 from dataclasses import dataclass
 
-from machine import (
+from .machine import (
     CLASSIC, Reflector, Plugboard, Rotor, Enigma, _byte_stream, _below, _ints,
 )
 

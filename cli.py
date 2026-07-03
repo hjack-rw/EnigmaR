@@ -13,11 +13,12 @@ the output blob is base64( nonce | tag | ciphertext ); decrypt verifies before o
 import argparse
 import base64
 import getpass
+import json
 import os
 import sys
 
-from cipher import Channel, StreamCipher
-from machine import Alphabet
+from enigmar import Channel, StreamCipher, Alphabet
+from enigmar import Identity, Handshake, authenticated_key, Session
 
 
 def _passphrase(args) -> str:
@@ -72,6 +73,81 @@ def cmd_rng(args) -> int:
     return 0
 
 
+# --- chat: a double-ratchet session persisted across invocations ------------
+# Handshake (X3DH-style): both make an identity; Bob publishes a prekey bundle;
+# Alice `start`s from it (emitting a hello bundle); Bob `accept`s it. Then both
+# `send` / `recv` — each call loads the ratchet state, advances it, saves it back.
+# Identity/prekey files hold private keys; bundles hold only public values.
+
+def _save(path: str, obj: dict) -> None:
+    with open(path, "w") as f:
+        json.dump(obj, f)
+
+
+def _load(path: str) -> dict:
+    with open(path) as f:
+        return json.load(f)
+
+
+def cmd_id(args) -> int:
+    idn = Identity()
+    _save(args.out, {"priv": format(idn._priv, "x"), "pub": format(idn.public, "x")})
+    sys.stderr.write(f"identity -> {args.out}  (public {format(idn.public, 'x')[:20]}…)\n")
+    return 0
+
+
+def cmd_prekey(args) -> int:
+    idn = _load(args.id)
+    eph = Handshake()
+    _save(args.out, {"eph_priv": format(eph._priv, "x")})
+    _save(args.bundle, {"id_pub": idn["pub"], "eph_pub": format(eph.public, "x")})
+    sys.stderr.write(f"prekey -> {args.out}; share bundle -> {args.bundle}\n")
+    return 0
+
+
+def cmd_start(args) -> int:                       # initiator (Alice)
+    me, peer = _load(args.id), _load(args.peer)
+    id_a, ea = Identity(int(me["priv"], 16)), Handshake()
+    id_b_pub, eb_pub = int(peer["id_pub"], 16), int(peer["eph_pub"], 16)
+    root = authenticated_key(id_a, ea, id_b_pub, eb_pub, initiator=True)
+    _save(args.state, Session.initiator(root, eb_pub).to_dict())
+    _save(args.hello, {"id_pub": me["pub"], "eph_pub": format(ea.public, "x")})
+    sys.stderr.write(f"session -> {args.state}; send hello -> {args.hello}\n")
+    return 0
+
+
+def cmd_accept(args) -> int:                      # responder (Bob)
+    me, pre, peer = _load(args.id), _load(args.prekey), _load(args.peer)
+    id_b, eb = Identity(int(me["priv"], 16)), Handshake(int(pre["eph_priv"], 16))
+    id_a_pub, ea_pub = int(peer["id_pub"], 16), int(peer["eph_pub"], 16)
+    root = authenticated_key(id_b, eb, id_a_pub, ea_pub, initiator=False)
+    _save(args.state, Session.responder(root, eb).to_dict())
+    sys.stderr.write(f"session -> {args.state}\n")
+    return 0
+
+
+def cmd_send(args) -> int:
+    sess = Session.from_dict(_load(args.state))
+    data = args.message.encode() if args.message is not None else sys.stdin.buffer.read()
+    blob = sess.send(data)
+    _save(args.state, sess.to_dict())
+    sys.stdout.write(blob + "\n")
+    return 0
+
+
+def cmd_recv(args) -> int:
+    sess = Session.from_dict(_load(args.state))
+    blob = args.blob if args.blob else sys.stdin.read().strip()
+    try:
+        data = sess.receive(blob)
+    except (ValueError, KeyError) as e:
+        sys.stderr.write(f"error: {e}\n")
+        return 1
+    _save(args.state, sess.to_dict())
+    sys.stdout.buffer.write(data)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="enigmar", description="EnigmaR cipher / reproducible RNG")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -90,6 +166,28 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--nonce", default="", help="nonce for a distinct reproducible stream")
     r.add_argument("--raw", action="store_true", help="raw bytes instead of hex")
     r.set_defaults(fn=cmd_rng)
+
+    chat = sub.add_parser("chat", help="double-ratchet session (persisted state files)")
+    cs = chat.add_subparsers(dest="chatcmd", required=True)
+    c_id = cs.add_parser("identity", help="make an identity keypair")
+    c_id.add_argument("--out", required=True); c_id.set_defaults(fn=cmd_id)
+    c_pre = cs.add_parser("prekey", help="publish a prekey bundle (responder)")
+    c_pre.add_argument("--id", required=True); c_pre.add_argument("--out", required=True)
+    c_pre.add_argument("--bundle", required=True); c_pre.set_defaults(fn=cmd_prekey)
+    c_st = cs.add_parser("start", help="start a session from a peer's prekey (initiator)")
+    c_st.add_argument("--id", required=True); c_st.add_argument("--peer", required=True)
+    c_st.add_argument("--state", required=True); c_st.add_argument("--hello", required=True)
+    c_st.set_defaults(fn=cmd_start)
+    c_ac = cs.add_parser("accept", help="accept a peer's hello (responder)")
+    c_ac.add_argument("--id", required=True); c_ac.add_argument("--prekey", required=True)
+    c_ac.add_argument("--peer", required=True); c_ac.add_argument("--state", required=True)
+    c_ac.set_defaults(fn=cmd_accept)
+    c_sd = cs.add_parser("send", help="encrypt a message (advances the ratchet)")
+    c_sd.add_argument("--state", required=True); c_sd.add_argument("message", nargs="?")
+    c_sd.set_defaults(fn=cmd_send)
+    c_rc = cs.add_parser("recv", help="decrypt a blob (arg or stdin)")
+    c_rc.add_argument("--state", required=True); c_rc.add_argument("blob", nargs="?")
+    c_rc.set_defaults(fn=cmd_recv)
     return p
 
 

@@ -19,7 +19,9 @@ import zlib
 import statistics
 from collections import Counter
 
-import enigma as E
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+import enigmar as E
 
 
 def keystream_indices(n, passphrase="benchmark", nonce="test"):
