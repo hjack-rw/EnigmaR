@@ -3,18 +3,22 @@ Format-preserving encryption toys — the one thing the engine does that a gener
 cipher doesn't: ciphertext stays in the input's own shape. Run: python demos/fpe.py
 
 Not security — a showcase. Each is a keyed, reversible mapping over a constrained
-domain (a card stays a valid card, a PESEL stays a valid PESEL, a sentence stays a
-sentence). For checksummed fields the trick is: encrypt the free part with the engine
-(an additive digit cipher is a bijection, so it round-trips), then recompute the check
-digit — the output is valid by construction.
+domain (a card stays a valid card, a PESEL stays a valid PESEL, an IP stays an IP).
+The reusable machinery lives in `enigmar.FPE`; each field below is a few lines of
+config on top of it. For checksummed fields the check digit is marked derived, so
+FPE recomputes it after encryption and the output is valid by construction.
 """
 import os as _os
 import sys as _sys
+
+# Windows consoles default to cp1252; force UTF-8 so the melody glyphs print.
+if hasattr(_sys.stdout, "reconfigure"):
+    _sys.stdout.reconfigure(encoding="utf-8")
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 import enigmar as E
 
 PASS = "hunter2"
-_DIGITS = E.Alphabet("0123456789")
+DIGITS = "0123456789"
 
 
 # --- checksums --------------------------------------------------------------
@@ -32,7 +36,7 @@ def _luhn_check(payload):
 
 
 def luhn_valid(card):
-    d = [int(c) for c in card]
+    d = [int(c) for c in card if c.isdigit()]
     return _luhn_check(d[:-1]) == d[-1]
 
 
@@ -46,36 +50,50 @@ def pesel_valid(pesel):
     return len(d) == 11 and _pesel_check(d[:10]) == d[10]
 
 
-# --- card -> card (Luhn preserved) ------------------------------------------
-
-def card_encrypt(pan, nonce="card"):
-    sc = E.StreamCipher.from_passphrase(PASS, nonce=nonce, alphabet=_DIGITS)
-    enc = sc.encrypt(pan[:15])                       # 15 free digits, reversible
-    return enc + str(_luhn_check([int(c) for c in enc]))
+def _luhn_str(digits):     # FPE checksum hook: list[str] -> str
+    return str(_luhn_check([int(c) for c in digits]))
 
 
-def card_decrypt(tok, nonce="card"):
-    sc = E.StreamCipher.from_passphrase(PASS, nonce=nonce, alphabet=_DIGITS)
-    dec = sc.decrypt(tok[:15])
-    return dec + str(_luhn_check([int(c) for c in dec]))  # original card was valid
+def _pesel_str(digits):
+    return str(_pesel_check([int(c) for c in digits]))
 
 
-# --- PESEL -> PESEL (valid date kept, serial re-keyed, checksum recomputed) --
+# --- the fields, each a few lines of FPE config -----------------------------
 
-def pesel_encrypt(pesel, nonce="pesel"):
-    sc = E.StreamCipher.from_passphrase(PASS, nonce=nonce, alphabet=_DIGITS)
-    date, serial = pesel[:6], pesel[6:10]            # keep birth date, re-key the serial
-    new = date + sc.encrypt(serial)
-    return new + str(_pesel_check([int(c) for c in new]))
+# CARD -> CARD: 15 free digits encrypted, 16th is the recomputed Luhn digit.
+card = E.FPE(PASS, DIGITS, nonce="card", checksum=_luhn_str)
+
+# PESEL -> PESEL: keep the 6-digit birth date, re-key the 4-digit serial, and
+# recompute the trailing checksum over the first 10 digits.
+pesel = E.FPE(PASS, DIGITS, nonce="pesel", keep_prefix=6, checksum=_pesel_str)
+
+# PHONE (E.164) -> PHONE: '+' and country code stay, national digits re-keyed.
+# keep_prefix counts payload (digit) symbols, so +48 keeps 2 digits fixed.
+phone = E.FPE(PASS, DIGITS, nonce="phone", keep_prefix=2)
+
+# IPv4 -> IPv4, per octet: each octet is a number in 0..255, encrypted in that
+# domain (not digit-by-digit), so every octet stays a valid octet. This one is
+# not the char-FPE helper — the domain is 0..255, so it's a byte-alphabet cipher
+# run once per octet. Shows FPE is about the domain, not the digit count.
+_OCTET = E.StreamCipher.from_passphrase(PASS, nonce="octet", alphabet=E.Alphabet.of_bytes())
 
 
-def pesel_decrypt(tok, nonce="pesel"):
-    sc = E.StreamCipher.from_passphrase(PASS, nonce=nonce, alphabet=_DIGITS)
-    orig = tok[:6] + sc.decrypt(tok[6:10])
-    return orig + str(_pesel_check([int(c) for c in orig]))
+def _octet(o, *, decrypt=False):
+    out = _OCTET.decrypt(bytes([int(o)])) if decrypt else _OCTET.encrypt(bytes([int(o)]))
+    return str(out[0])
+
+
+def ipv4(addr, *, decrypt=False):
+    return ".".join(_octet(o, decrypt=decrypt) for o in addr.split("."))
+
+
+# UUID -> UUID: hex digits re-keyed, dashes and the version nibble kept.
+UUID_HEX = "0123456789abcdef"
+uuid = E.FPE(PASS, UUID_HEX, nonce="uuid")
 
 
 # --- sentence -> sentence (real words in, real words out) --------------------
+# FPE over a *vocabulary* rather than characters: the alphabet is the word list.
 
 _WORDS = ("the a of to and attack at dawn from north south east west move hold fire "
           "retreat advance enemy near river bridge hill town send men now wait for order "
@@ -91,7 +109,7 @@ def sentence_map(text, nonce="msg", *, decrypt=False):
     return " ".join(_WORDS[b] for b in out)
 
 
-# --- passphrase -> melody (generative, reproducible) -------------------------
+# --- passphrase -> melody (generative, reproducible; not FPE) ----------------
 
 def melody(passphrase, bars=8, nonce="tune"):
     scale = ["C", "D", "E", "G", "A"]                # C major pentatonic
@@ -107,24 +125,44 @@ def _rule(t):
 
 if __name__ == "__main__":
     _rule("1.  CARD -> CARD   (stays a Luhn-valid 16-digit number)")
-    pan = "4111111111111111"                        # a Luhn-valid test card
-    tok = card_encrypt(pan)
+    pan = "4111 1111 1111 1111"                       # a Luhn-valid test card (spaced)
+    tok = card.encrypt(pan)
     print(f"  {pan}  ->  {tok}")
     print(f"  input valid: {luhn_valid(pan)} | output valid: {luhn_valid(tok)} | "
-          f"reverses: {card_decrypt(tok) == pan}")
+          f"reverses: {card.decrypt(tok) == pan}")
 
     _rule("2.  PESEL -> PESEL   (valid date kept, valid checksum)")
-    pesel = "44051401359"                            # a classic valid PESEL
-    ptok = pesel_encrypt(pesel)
-    print(f"  {pesel}  ->  {ptok}")
-    print(f"  input valid: {pesel_valid(pesel)} | output valid: {pesel_valid(ptok)} | "
-          f"reverses: {pesel_decrypt(ptok) == pesel}")
+    p = "44051401359"                                 # a classic valid PESEL
+    ptok = pesel.encrypt(p)
+    print(f"  {p}  ->  {ptok}")
+    print(f"  input valid: {pesel_valid(p)} | output valid: {pesel_valid(ptok)} | "
+          f"reverses: {pesel.decrypt(ptok) == p}")
 
-    _rule("3.  SENTENCE -> SENTENCE   (real words in, real words out)")
+    _rule("3.  PHONE -> PHONE   ('+48' country code kept)")
+    ph = "+48 123 456 789"
+    ptok = phone.encrypt(ph)
+    print(f"  {ph}  ->  {ptok}")
+    print(f"  prefix kept: {ptok.startswith('+48')} | reverses: {phone.decrypt(ptok) == ph}")
+
+    _rule("4.  IPv4 -> IPv4   (every octet stays 0..255)")
+    ip = "192.168.1.254"
+    itok = ipv4(ip)
+    octs_ok = all(0 <= int(o) <= 255 for o in itok.split("."))
+    print(f"  {ip}  ->  {itok}")
+    print(f"  valid octets: {octs_ok} | reverses: {ipv4(itok, decrypt=True) == ip}")
+
+    _rule("5.  UUID -> UUID   (hex re-keyed, dashes kept)")
+    uid = "550e8400-e29b-41d4-a716-446655440000"
+    utok = uuid.encrypt(uid)
+    print(f"  {uid}  ->  {utok}")
+    print(f"  shape kept: {len(utok) == len(uid) and utok.count('-') == 4} | "
+          f"reverses: {uuid.decrypt(utok) == uid}")
+
+    _rule("6.  SENTENCE -> SENTENCE   (real words in, real words out)")
     msg = "attack the bridge at dawn"
     enc = sentence_map(msg)
     print(f"  '{msg}'\n    ->  '{enc}'\n    ->  '{sentence_map(enc, decrypt=True)}'")
 
-    _rule("4.  PASSPHRASE -> MELODY   (reproducible, C major pentatonic)")
+    _rule("7.  PASSPHRASE -> MELODY   (reproducible, C major pentatonic; not FPE)")
     print(f"  '{PASS}'   ->  {melody(PASS)}")
     print(f"  'other'    ->  {melody('other')}")

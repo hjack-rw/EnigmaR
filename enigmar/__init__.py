@@ -6,6 +6,7 @@ The library is split by layer; this package re-exports everything, so
 
 - machine  — the Enigma mechanism (Rotor / Reflector / Plugboard / Enigma) + dynamics
 - cipher   — the crypto layer (key derivation, StreamCipher, Cascade, Channel, Config)
+- fpe      — format-preserving encryption (FPE) over a character domain
 - kex      — Diffie-Hellman handshake (Handshake / Identity / authenticated_key)
 - ratchet  — per-message key ratchet (forward secrecy)
 - session  — end-to-end send/receive session (Session), with a DH ratchet
@@ -21,6 +22,7 @@ from .machine import (  # noqa: F401
 from .cipher import (  # noqa: F401
     Config, derive_machine, StreamCipher, Cascade, Channel,
 )
+from .fpe import FPE  # noqa: F401
 from .kex import Handshake, Identity, authenticated_key  # noqa: F401
 from .ratchet import Ratchet  # noqa: F401
 from .session import Session  # noqa: F401
