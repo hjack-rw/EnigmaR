@@ -17,9 +17,8 @@ const $ = id => document.getElementById(id);
 let seal = null, lastCode = "";
 
 function setStatus(msg, state) {          // state: "busy" | "ready" | "error" | ""
-  const el = $("status");
-  el.textContent = msg;
-  el.className = "status" + (state ? " " + state : "");
+  $("statusText").textContent = msg;     // leave the rotor discs in place
+  $("status").className = "status" + (state ? " " + state : "");
 }
 function enableControls(on) {
   ["mint", "checkBtn", "tamperBtn"].forEach(id => { $(id).disabled = !on; });

@@ -1,5 +1,7 @@
 # EnigmaR
 
+[![tests](https://github.com/hjack-rw/EnigmaR/actions/workflows/ci.yml/badge.svg)](https://github.com/hjack-rw/EnigmaR/actions/workflows/ci.yml)
+
 A home-grown **Enigma-style cipher**, put to one genuinely useful job:
 **sealed, self-validating codes**. Short, pretty codes that carry their own data
 and prove they're real, with *no database lookup* needed to check them.
