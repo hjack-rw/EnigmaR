@@ -6,6 +6,8 @@ and prove they're real, with *no database lookup* needed to check them.
 
 > **[▶ Live demo](https://hjack-rw.github.io/EnigmaR/):** set the fields, mint a code, then tamper it and watch it reject. Runs entirely in your browser.
 
+[![The demo minting a code and validating it as genuine](docs/assets/demo.png)](https://hjack-rw.github.io/EnigmaR/)
+
 ```
 SUMMR-7F3QA-9   →  decode →  { creator: 42, discount: 15%, expiry, serial }   ✓ genuine
 ```

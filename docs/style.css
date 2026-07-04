@@ -170,6 +170,27 @@ button:disabled {
 .status.ready { color: var(--green); }
 .status.error { color: var(--red); }
 
+.status.busy::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 8px;
+  vertical-align: -1px;
+  border: 2px solid #e2d3a3;
+  border-top-color: #a87c0a;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status.busy::before { animation: none; }
+}
+
 .code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-weight: 700;
