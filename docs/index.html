@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enigma Codes: sealed self-validating codes</title>
+<link rel="icon" href="assets/favicon.png">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <img src="assets/logo.png" alt="Enigma Codes">
+      <div><h1>Enigma Codes</h1><div class="sub">sealed self-validating codes</div></div>
+    </div>
+    <p class="lead">Short, pretty codes that carry their own data and prove themselves,
+      with no database lookup to check they're genuine. Powered by a real Enigma cipher,
+      running right here in your browser. <em>Ring up your code on the Enigma.</em></p>
+    <span class="tag">🔒 mechanism is open · the only secret is the key</span>
+  </div>
+</header>
+
+<section><div class="wrap">
+  <h2>Try it: mint a code, then break it</h2>
+  <p class="muted">Everything runs in your browser. The real enigmar engine (rotors, reflector,
+    plugboard) loads through Pyodide (CPython on WebAssembly) and mints every code; an
+    HMAC-SHA256 tag seals it. No server, nothing sent anywhere.</p>
+  <div class="demo">
+    <div class="row">
+      <label for="key">Key</label>
+      <input id="key" value="demo-master-key">
+    </div>
+    <div class="row">
+      <label for="creator">Creator</label>
+      <input id="creator" type="number" min="0" max="32767" value="42" style="max-width:90px">
+      <label for="discount" style="min-width:56px">Disc %</label>
+      <input id="discount" type="number" min="0" max="31" value="15" style="max-width:80px">
+      <label for="expiry" style="min-width:52px">Expiry</label>
+      <input id="expiry" type="number" min="0" max="32767" value="9000" style="max-width:100px">
+      <button id="mint" disabled>Mint a code</button>
+    </div>
+    <div id="status" class="status busy">Loading the engine…</div>
+    <div id="code" class="code">·····</div>
+    <div class="row" style="margin-top:16px">
+      <label for="check">Validate</label>
+      <input id="check" placeholder="paste a code">
+      <button id="checkBtn" class="ghost" disabled>Check</button>
+      <button id="tamperBtn" class="ghost" disabled>Tamper last</button>
+    </div>
+    <div id="verdict" class="verdict muted">Mint one, then validate or tamper it.</div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>What just happened</h2>
+  <p><span class="pill g">unforgeable</span> an HMAC tag rides <em>inside</em> the code, so you can't
+    mint a valid one without the key.</p>
+  <p><span class="pill g">self-validating</span> to check it's genuine, you decode and recompute the
+    tag. <strong>No database</strong>.</p>
+  <p><span class="pill g">self-describing</span> the code carries its own fields (id, discount,
+    expiry, serial).</p>
+  <p><span class="pill g">tamper-evident</span> change one character and the tag fails.</p>
+  <p><span class="pill gold">pretty</span> grouped base32 that looks like a normal code, not a blob.
+    A raw signed token would read <code>aFEwN3BSMlprOUx3M3ZYOA</code>; here it's
+    <code>SNJ1C-9BEEM-479FG</code>, groupable and typeable.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Honest note</h2>
+  <p class="muted">This page is a <strong>demo of the mechanism</strong>, not a secured service.
+    The key lives in your browser here, so anyone could read it; in production it stays on a
+    server (or a per-tenant secret). What's genuinely offline is <strong>authenticity</strong>:
+    a key-holder decodes and rechecks the tag locally, no database lookup. Two honest limits
+    follow from the symmetric key. First, <strong>verifying implies forging</strong>: whoever can
+    validate can also mint, so the key stays with the trusted merchant, and safe validation on
+    untrusted terminals would need public-key signatures. Second, <strong>single-use needs state
+    shared across validators</strong>: one offline device enforces it with a local ledger, but N
+    offline terminals each catch only their own replays and would have to sync. The cipher is
+    home-grown, so for real money the unforgeability rests on standard HMAC; the Enigma does the
+    format and the flavour.</p>
+</div></section>
+
+<footer><div class="wrap">
+  Built on the open <a href="https://github.com/hjack-rw/EnigmaR">EnigmaR</a> engine, a
+  standalone Enigma-style cipher. The mechanism is open; the only secret is the key.
+</div></footer>
+</body>
+</html>
