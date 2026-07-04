@@ -69,3 +69,12 @@ def test_fresh_pad_per_nonce():
 def test_garbage_input_is_rejected():
     for junk in ["", "not-a-code", "AAAAA-AAAAA-AAAAA", "12345"]:
         assert seal.check(KEY, junk) is None
+
+
+def test_brand_is_bound():
+    code = seal.mint(KEY, 42, 15, 9000, 1, brand="SUMMER")
+    assert seal.check(KEY, code, brand="SUMMER") is not None   # right brand
+    assert seal.check(KEY, code, brand="summer") is not None   # case-insensitive
+    assert seal.check(KEY, code, brand="HARVEST") is None      # another brand's code
+    assert seal.check(KEY, code, brand="SUMER") is None        # misspelled
+    assert seal.check(KEY, code) is None                       # brand omitted

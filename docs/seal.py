@@ -75,29 +75,30 @@ def _group(s):
     return "-".join(s[i:i + 5] for i in range(0, len(s), 5))
 
 
-def mint(key, cid, disc, exp, ser):
-    key = str(key)
+def mint(key, cid, disc, exp, ser, brand=""):
+    key, brand = str(key), str(brand).upper()
     cid, disc, exp, ser = int(cid), int(disc), int(exp), int(ser)
     nonce = _enc_int(ser, W_SER)                                   # clear per-code nonce
     payload = _enc_int(cid, W_ID) + _enc_int(disc, W_DISC) + _enc_int(exp, W_EXP)
-    body = payload + _tag(key, nonce + payload)                   # payload + HMAC tag
+    body = payload + _tag(key, brand + "|" + nonce + payload)     # brand is bound into the tag
     sealed = _fpe(key, nonce).encrypt(body)                       # real Enigma runs here
     return _group(nonce + sealed)
 
 
-def check(key, code):
-    key, code = str(key), str(code)
+def check(key, code, brand=""):
+    key, code, brand = str(key), str(code), str(brand).upper()
     raw = "".join(c for c in code.upper() if c in ALPH)
     if len(raw) != W_CODE:
         return None
     nonce = raw[:W_SER]
     body = _fpe(key, nonce).decrypt(raw[W_SER:])
     payload, t = body[:W_SEC], body[W_SEC:]
-    if t != _tag(key, nonce + payload):
+    if t != _tag(key, brand + "|" + nonce + payload):            # wrong brand -> tag mismatch
         return None
     return {
         "id": _dec_int(payload[:3]),
         "discount": _dec_int(payload[3:4]),
         "expiry": _dec_int(payload[4:7]),
         "serial": _dec_int(nonce),
+        "brand": brand,
     }

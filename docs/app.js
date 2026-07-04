@@ -13,8 +13,9 @@ const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`;
 const ENIGMAR_RAW = "https://raw.githubusercontent.com/hjack-rw/EnigmaR/main/enigmar/";
 const ENIGMAR_FILES = ["__init__.py", "machine.py", "cipher.py", "fpe.py"];
 
+const ALPH = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";   // the 15-symbol code alphabet
 const $ = id => document.getElementById(id);
-let seal = null, lastCode = "";
+let seal = null, lastSealed = "", lastBrand = "";
 
 function setStatus(msg, state) {          // state: "busy" | "ready" | "error" | ""
   $("statusText").textContent = msg;     // leave the rotor discs in place
@@ -64,9 +65,11 @@ function mint() {
     const disc = clamp($("discount").value, 31);     // 1 base32 symbol
     const exp = clamp($("expiry").value, 32767);     // 3 base32 symbols
     const ser = Math.floor(Math.random() * 32768);   // per-code nonce
-    lastCode = seal.mint(key, cid, disc, exp, ser);
-    $("code").textContent = lastCode;
-    $("check").value = lastCode;
+    lastBrand = $("brand").value;                     // bound into the seal (see decode)
+    lastSealed = seal.mint(key, cid, disc, exp, ser, lastBrand);
+    const display = lastBrand ? `${lastBrand}-${lastSealed}` : lastSealed;
+    $("code").textContent = display;
+    $("check").value = display;
     $("verdict").className = "verdict muted";
     $("verdict").textContent = "Minted. Now Check it, or Tamper it.";
   } catch (e) {
@@ -75,7 +78,12 @@ function mint() {
 }
 
 function decode(key, code) {
-  const r = seal.check(key, code);
+  // "BRAND-xxxxx-xxxxx-xxxxx": the sealed body is the last 3 groups; anything before is
+  // the brand, which is bound into the tag (so a code only validates under its own brand).
+  const parts = code.trim().split("-").filter(Boolean);
+  const brand = parts.length > 3 ? parts.slice(0, -3).join("-") : "";
+  const sealed = [...parts.slice(-3).join("").toUpperCase()].filter(c => ALPH.includes(c)).join("").slice(-15);
+  const r = seal.check(key, sealed, brand);
   if (r === null || r === undefined) return null;
   const obj = r.toJs({ dict_converter: Object.fromEntries });
   r.destroy();
@@ -89,10 +97,11 @@ function validateInput() {
     const f = decode(key, $("check").value);
     if (f) {
       v.className = "verdict ok";
-      v.textContent = `✓ genuine: id ${f.id}, ${f.discount}% off, serial ${f.serial}`;
+      const label = f.brand ? f.brand + " " : "";
+      v.textContent = `✓ genuine ${label}code: id ${f.id}, ${f.discount}% off, serial ${f.serial}`;
     } else {
       v.className = "verdict bad";
-      v.textContent = "✗ rejected: forged, tampered, or wrong key";
+      v.textContent = "✗ rejected: forged, tampered, wrong brand, or wrong key";
     }
   } catch (e) {
     v.className = "verdict bad";
@@ -101,13 +110,13 @@ function validateInput() {
 }
 
 function tamper() {
-  if (!lastCode) return;
-  const ALPH = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-  const chars = [...lastCode];
+  if (!lastSealed) return;                    // tamper the sealed part, not the brand
+  const chars = [...lastSealed];
   let i = Math.floor(Math.random() * chars.length);
   while (chars[i] === "-") i = (i + 1) % chars.length;
   chars[i] = ALPH[(ALPH.indexOf(chars[i]) + 1) % ALPH.length];
-  $("check").value = chars.join("");
+  const tampered = chars.join("");
+  $("check").value = lastBrand ? `${lastBrand}-${tampered}` : tampered;
   validateInput();
 }
 

@@ -40,12 +40,29 @@
       <input id="key" value="demo-master-key">
     </div>
     <div class="row">
-      <label for="creator">Creator</label>
-      <input id="creator" type="number" min="0" max="32767" value="42" style="max-width:90px">
-      <label for="discount" style="min-width:56px">Disc %</label>
-      <input id="discount" type="number" min="0" max="31" value="15" style="max-width:80px">
-      <label for="expiry" style="min-width:52px">Expiry</label>
-      <input id="expiry" type="number" min="0" max="32767" value="9000" style="max-width:100px">
+      <span class="field">
+        <label for="brand">Brand</label>
+        <select id="brand">
+          <option>SUMMER</option>
+          <option>HARVEST</option>
+          <option>AURORA</option>
+          <option>NIMBUS</option>
+          <option>COBALT</option>
+          <option>MEADOW</option>
+        </select>
+      </span>
+      <span class="field">
+        <label for="creator">Creator</label>
+        <input id="creator" type="number" min="0" max="32767" value="42">
+      </span>
+      <span class="field">
+        <label for="discount">Disc %</label>
+        <input id="discount" type="number" min="0" max="31" value="15">
+      </span>
+      <span class="field">
+        <label for="expiry">Expiry</label>
+        <input id="expiry" type="number" min="0" max="32767" value="9000">
+      </span>
       <button id="mint" disabled>Mint a code</button>
     </div>
     <div id="status" class="status busy"><span class="rotors" aria-hidden="true"><i></i><i></i><i></i></span><span id="statusText">Loading the engine…</span></div>
@@ -69,6 +86,8 @@
   <p><span class="pill g">self-describing</span> the code carries its own fields (id, discount,
     expiry, serial).</p>
   <p><span class="pill g">tamper-evident</span> change one character and the tag fails.</p>
+  <p><span class="pill g">brand-bound</span> the brand is folded into the tag, so a SUMMER code
+    won't validate as HARVEST. A visible label that actually gates validity, not decoration.</p>
   <p><span class="pill gold">pretty</span> grouped base32 that looks like a normal code, not a blob.
     A raw signed token would read <code>aFEwN3BSMlprOUx3M3ZYOA</code>; here it's
     <code>SNJ1C-9BEEM-479FG</code>, groupable and typeable.</p>

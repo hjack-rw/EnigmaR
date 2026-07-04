@@ -134,6 +134,28 @@ input {
   min-width: 150px;
 }
 
+select {
+  font: inherit;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+/* Field group: keeps each label glued to its control so the row wraps as units. */
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.field label { min-width: 0; }
+.field select { min-width: 0; }
+.field input {
+  flex: none;
+  min-width: 0;
+  width: 88px;
+}
+
 button {
   font: inherit;
   font-weight: 600;
