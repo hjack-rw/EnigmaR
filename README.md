@@ -47,6 +47,25 @@ card = FPE("key", "0123456789", nonce="card")
 card.encrypt("4111 1111 1111 1111")     # another valid, same-shape card; spaces kept
 ```
 
+### Two ways to seal
+
+The live demo seals a code the classic way: a per-code serial rides in the clear
+as the nonce, with an HMAC tag encrypted next to the payload. `enigmar.SealedCode`
+adds a stronger option — **SIV**, deterministic authenticated encryption
+([RFC 5297](https://www.rfc-editor.org/rfc/rfc5297)): the tag *is* the nonce. Same
+Enigma underneath, same length, but nothing rides in the clear (the serial is
+encrypted too), there is no nonce left to reuse, and the tag width becomes an
+explicit forgery-resistance knob. Not a new cipher — a known construction wrapped
+around the same engine.
+
+```python
+from enigmar import SealedCode
+codes = SealedCode("key", {"id": 3, "discount": 1, "expiry": 3, "serial": 3})
+code = codes.mint(id=42, discount=15, expiry=9000, serial=25846, brand="SUMMER")
+codes.check(code, brand="SUMMER")     # -> {"id": 42, "discount": 15, ...}
+codes.check(code, brand="HARVEST")    # -> None   (brand bound into the tag)
+```
+
 ## How it grew
 
 Started as a **BSc-thesis companion project (2020)** on encryption in digital signal
@@ -61,7 +80,7 @@ processing, and kept going. The history lives in branches and tags:
 ## Layout (this `main` branch: library and live demo)
 
 ```
-enigmar/   machine · cipher · fpe     (the lean cipher core)
+enigmar/   machine · cipher · fpe · sealed     (the lean cipher core)
 docs/      index.html · style.css · app.js · assets   (the live demo → GitHub Pages)
 ```
 

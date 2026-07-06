@@ -9,6 +9,7 @@ chat) lives on the `engine` branch; the original 2020 BSc Flask app is on `thesi
 - machine — the Enigma mechanism (Rotor / Reflector / Plugboard / Enigma) + dynamics
 - cipher  — the crypto layer (key derivation, StreamCipher, Cascade, Channel, Config)
 - fpe     — format-preserving encryption (FPE) over a character domain
+- sealed  — SIV-style sealed codes (deterministic AE) built on FPE
 
 `import enigmar as E` reaches it all. See README.md for the story, DESIGN.md for rationale.
 """
@@ -21,3 +22,4 @@ from .cipher import (  # noqa: F401
     Config, derive_machine, StreamCipher, Cascade, Channel,
 )
 from .fpe import FPE  # noqa: F401
+from .sealed import SealedCode, DEFAULT_ALPHABET  # noqa: F401
