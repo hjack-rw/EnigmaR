@@ -10,12 +10,15 @@
 
 const PYODIDE_VERSION = "v0.26.4";
 const PYODIDE_URL = `https://cdn.jsdelivr.net/pyodide/${PYODIDE_VERSION}/full/`;
-const ENIGMAR_RAW = "https://raw.githubusercontent.com/hjack-rw/EnigmaR/main/enigmar/";
-const ENIGMAR_FILES = ["__init__.py", "machine.py", "cipher.py", "fpe.py"];
+// jsDelivr's GitHub CDN, not raw.githubusercontent.com: raw rate-limits anonymous
+// traffic (429) and every load fetches 5 files; jsDelivr is CDN-cached (~12h on @main).
+const ENIGMAR_RAW = "https://cdn.jsdelivr.net/gh/hjack-rw/EnigmaR@main/enigmar/";
+const ENIGMAR_FILES = ["__init__.py", "machine.py", "cipher.py", "fpe.py", "sealed.py"];
 
 const ALPH = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";   // the 15-symbol code alphabet
 const $ = id => document.getElementById(id);
 let seal = null, lastSealed = "", lastBrand = "";
+const scheme = () => $("scheme").value;   // "siv" | "classic"
 
 function setStatus(msg, state) {          // state: "busy" | "ready" | "error" | ""
   $("statusText").textContent = msg;     // leave the rotor discs in place
@@ -66,7 +69,7 @@ function mint() {
     const exp = clamp($("expiry").value, 32767);     // 3 base32 symbols
     const ser = Math.floor(Math.random() * 32768);   // per-code nonce
     lastBrand = $("brand").value;                     // bound into the seal (see decode)
-    lastSealed = seal.mint(key, cid, disc, exp, ser, lastBrand);
+    lastSealed = seal.mint(key, cid, disc, exp, ser, lastBrand, scheme());
     const display = lastBrand ? `${lastBrand}-${lastSealed}` : lastSealed;
     $("code").textContent = display;
     $("check").value = display;
@@ -83,7 +86,7 @@ function decode(key, code) {
   const parts = code.trim().split("-").filter(Boolean);
   const brand = parts.length > 3 ? parts.slice(0, -3).join("-") : "";
   const sealed = [...parts.slice(-3).join("").toUpperCase()].filter(c => ALPH.includes(c)).join("").slice(-15);
-  const r = seal.check(key, sealed, brand);
+  const r = seal.check(key, sealed, brand, scheme());
   if (r === null || r === undefined) return null;
   const obj = r.toJs({ dict_converter: Object.fromEntries });
   r.destroy();

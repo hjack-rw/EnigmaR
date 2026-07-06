@@ -34,10 +34,22 @@
   <p class="muted">Everything runs in your browser. The real enigmar engine (rotors, reflector,
     plugboard) loads through Pyodide (CPython on WebAssembly) and mints every code; an
     HMAC-SHA256 tag seals it. No server, nothing sent anywhere.</p>
+  <p class="muted"><strong>The Seal switch</strong> picks the sealing construction, so you can
+    watch the difference. <em>Classic</em> rides the serial in the clear as the nonce — mint two
+    codes and the leading group tracks the serial. <em>SIV</em> makes the HMAC tag double as the
+    nonce, so the serial is encrypted too and nothing rides in the clear. Same engine, same
+    length; only the construction changes.</p>
   <div class="demo">
     <div class="row">
       <label for="key">Key</label>
       <input id="key" value="demo-master-key">
+      <span class="field">
+        <label for="scheme">Seal</label>
+        <select id="scheme">
+          <option value="siv">SIV (tag is the nonce)</option>
+          <option value="classic">Classic (clear serial)</option>
+        </select>
+      </span>
     </div>
     <div class="row">
       <span class="field">

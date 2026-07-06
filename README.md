@@ -49,14 +49,15 @@ card.encrypt("4111 1111 1111 1111")     # another valid, same-shape card; spaces
 
 ### Two ways to seal
 
-The live demo seals a code the classic way: a per-code serial rides in the clear
-as the nonce, with an HMAC tag encrypted next to the payload. `enigmar.SealedCode`
-adds a stronger option — **SIV**, deterministic authenticated encryption
-([RFC 5297](https://www.rfc-editor.org/rfc/rfc5297)): the tag *is* the nonce. Same
-Enigma underneath, same length, but nothing rides in the clear (the serial is
-encrypted too), there is no nonce left to reuse, and the tag width becomes an
-explicit forgery-resistance knob. Not a new cipher — a known construction wrapped
-around the same engine.
+The live demo ships both and lets you flip between them, so you can watch the
+difference. The **classic** way rides a per-code serial in the clear as the nonce,
+with an HMAC tag encrypted beside the payload — simple, but the serial leaks and the
+nonce is reusable. `enigmar.SealedCode` is the stronger **SIV** option, deterministic
+authenticated encryption ([RFC 5297](https://www.rfc-editor.org/rfc/rfc5297)), where
+the HMAC tag *is* the nonce. That one move fixes both problems: nothing rides in the
+clear (the serial is encrypted too), there is no nonce left to reuse, and the tag
+width becomes an explicit forgery-resistance knob. Same Enigma underneath, same
+length — not a new cipher, a known construction wrapped around the same engine.
 
 ```python
 from enigmar import SealedCode

@@ -1,20 +1,29 @@
 """
 Sealed-code logic for the browser demo, running the REAL enigmar engine.
 
-The format-preserving step is enigmar.FPE, which derives and runs an actual
-Enigma (rotors, reflector, plugboard) keyed by the passphrase and the per-code
-nonce, then combines by modular add over the code's own alphabet. The serial
-rides in the clear as that nonce, so every code drives a different machine (no
-shared keystream). An HMAC-SHA256 tag inside the code does the sealing.
+Two schemes live here so the demo can switch between them and show the contrast:
 
-Demo tuning: the passphrase stretch is swapped from scrypt (2**16, ~tens of ms
-of memory-hard work per call) to pbkdf2 so the whole thing stays snappy inside
-Pyodide/WASM. Only the key-stretch changes; the rotor engine is the real thing.
+  - "classic": a per-code serial rides in the clear as the FPE nonce, with an
+    HMAC tag encrypted next to the payload. Simple, but the serial leaks and the
+    nonce is reusable.
+  - "siv": enigmar.SealedCode — RFC 5297 deterministic AE, where the HMAC tag
+    doubles as the nonce. Nothing rides in the clear (the serial is encrypted
+    too) and there is no nonce left to reuse.
+
+Both drive the same Enigma (rotors, reflector, plugboard) through enigmar.FPE and
+seal with HMAC-SHA256; only the sealing construction differs. Everything is
+client-side.
+
+Demo tuning: the passphrase stretch is swapped from scrypt (2**16, memory-hard)
+to a light sha256 counter-mode KDF so the whole thing stays snappy inside
+Pyodide/WASM, which ships no OpenSSL-backed KDFs. Only the key-stretch changes;
+the rotor engine and the sealing constructions are the real thing.
 """
 import hmac
 import hashlib
 
 import enigmar.cipher as _cipher
+import enigmar.sealed as _sealed
 
 
 def _demo_kdf(passphrase, salt, *, n=None, dklen=64):
@@ -35,17 +44,24 @@ def _demo_kdf(passphrase, salt, *, n=None, dklen=64):
     return out[:dklen]
 
 
-_cipher._scrypt = _demo_kdf   # patch before any machine is derived
+# Patch the KDF in BOTH namespaces that resolve it: cipher (machine derivation,
+# looked up at call time) and sealed (the MAC key, bound at import). Before any
+# machine or SealedCode is built.
+_cipher._scrypt = _demo_kdf
+_sealed._scrypt = _demo_kdf
 
-from enigmar import FPE  # noqa: E402
+from enigmar import FPE, SealedCode, DEFAULT_ALPHABET as ALPH  # noqa: E402
 
-ALPH = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"   # 32, no I/L/O/U
-N = 32
-W_ID, W_DISC, W_EXP, W_SER, W_TAG = 3, 1, 3, 3, 5
-W_SEC = W_ID + W_DISC + W_EXP    # 7  — permuted payload
-W_BODY = W_SEC + W_TAG           # 12 — permuted body (payload + tag)
-W_CODE = W_SER + W_BODY          # 15 — clear nonce + body
+N = len(ALPH)                                    # 32, no I/L/O/U
+# id · discount · expiry · serial — a 15-symbol code either way.
+FIELDS = {"id": 3, "discount": 1, "expiry": 3, "serial": 3}
+W_ID, W_DISC, W_EXP, W_SER = 3, 1, 3, 3
+W_TAG = 5
+W_SEC = W_ID + W_DISC + W_EXP                     # 7  — classic payload
+W_CODE = W_TAG + sum(FIELDS.values())            # 15 — both schemes
 
+
+# -- classic: clear nonce + encrypted tag ---------------------------------------
 
 def _enc_int(v, w):
     o = ""
@@ -67,38 +83,57 @@ def _tag(key, msg):
     return _enc_int(int.from_bytes(b[:4], "big") % (N ** W_TAG), W_TAG)
 
 
-def _fpe(key, nonce):
-    return FPE(key, ALPH, nonce=nonce)
-
-
 def _group(s):
     return "-".join(s[i:i + 5] for i in range(0, len(s), 5))
 
 
-def mint(key, cid, disc, exp, ser, brand=""):
+def _mint_classic(key, cid, disc, exp, ser, brand=""):
     key, brand = str(key), str(brand).upper()
-    cid, disc, exp, ser = int(cid), int(disc), int(exp), int(ser)
-    nonce = _enc_int(ser, W_SER)                                   # clear per-code nonce
-    payload = _enc_int(cid, W_ID) + _enc_int(disc, W_DISC) + _enc_int(exp, W_EXP)
-    body = payload + _tag(key, brand + "|" + nonce + payload)     # brand is bound into the tag
-    sealed = _fpe(key, nonce).encrypt(body)                       # real Enigma runs here
+    nonce = _enc_int(int(ser), W_SER)                              # clear per-code nonce
+    payload = _enc_int(int(cid), W_ID) + _enc_int(int(disc), W_DISC) + _enc_int(int(exp), W_EXP)
+    body = payload + _tag(key, brand + "|" + nonce + payload)      # brand bound into the tag
+    sealed = FPE(key, ALPH, nonce=nonce).encrypt(body)            # real Enigma runs here
     return _group(nonce + sealed)
 
 
-def check(key, code, brand=""):
-    key, code, brand = str(key), str(code), str(brand).upper()
-    raw = "".join(c for c in code.upper() if c in ALPH)
+def _check_classic(key, code, brand=""):
+    key, brand = str(key), str(brand).upper()
+    raw = "".join(c for c in str(code).upper() if c in ALPH)
     if len(raw) != W_CODE:
         return None
     nonce = raw[:W_SER]
-    body = _fpe(key, nonce).decrypt(raw[W_SER:])
+    body = FPE(key, ALPH, nonce=nonce).decrypt(raw[W_SER:])
     payload, t = body[:W_SEC], body[W_SEC:]
-    if t != _tag(key, brand + "|" + nonce + payload):            # wrong brand -> tag mismatch
+    if t != _tag(key, brand + "|" + nonce + payload):
         return None
-    return {
-        "id": _dec_int(payload[:3]),
-        "discount": _dec_int(payload[3:4]),
-        "expiry": _dec_int(payload[4:7]),
-        "serial": _dec_int(nonce),
-        "brand": brand,
-    }
+    return {"id": _dec_int(payload[:3]), "discount": _dec_int(payload[3:4]),
+            "expiry": _dec_int(payload[4:7]), "serial": _dec_int(nonce), "brand": brand}
+
+
+# -- siv: enigmar.SealedCode (RFC 5297) -----------------------------------------
+
+def _codes(key):
+    return SealedCode(str(key), FIELDS, tag_width=W_TAG)          # -> 15-symbol code
+
+
+def _mint_siv(key, cid, disc, exp, ser, brand=""):
+    return _codes(key).mint(id=int(cid), discount=int(disc), expiry=int(exp),
+                            serial=int(ser), brand=str(brand))
+
+
+def _check_siv(key, code, brand=""):
+    return _codes(key).check(str(code), brand=str(brand))
+
+
+# -- dispatch -------------------------------------------------------------------
+
+_MINT = {"classic": _mint_classic, "siv": _mint_siv}
+_CHECK = {"classic": _check_classic, "siv": _check_siv}
+
+
+def mint(key, cid, disc, exp, ser, brand="", scheme="siv"):
+    return _MINT[scheme](key, cid, disc, exp, ser, brand)
+
+
+def check(key, code, brand="", scheme="siv"):
+    return _CHECK[scheme](key, code, brand)
